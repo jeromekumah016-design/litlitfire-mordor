@@ -1,7 +1,19 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  InsertUser,
+  users,
+  books,
+  pages,
+  processingJobs,
+  type InsertBook,
+  type Book,
+  type InsertPage,
+  type Page,
+  type InsertProcessingJob,
+  type ProcessingJob,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -56,8 +68,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.role = user.role;
       updateSet.role = user.role;
     } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
+      values.role = "admin";
+      updateSet.role = "admin";
     }
 
     if (!values.lastSignedIn) {
@@ -89,4 +101,92 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Book queries
+export async function createBook(book: InsertBook): Promise<Book | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.insert(books).values(book);
+  const bookId = (result as any).insertId;
+  const created = await db.select().from(books).where(eq(books.id, bookId)).limit(1);
+  return created.length > 0 ? created[0] : null;
+}
+
+export async function getBook(bookId: number): Promise<Book | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.select().from(books).where(eq(books.id, bookId)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function getUserBooks(userId: number): Promise<Book[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(books).where(eq(books.userId, userId));
+}
+
+export async function updateBookStatus(bookId: number, status: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(books).set({ processingStatus: status as any }).where(eq(books.id, bookId));
+}
+
+export async function updateBook(bookId: number, updates: Partial<Book>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(books).set(updates).where(eq(books.id, bookId));
+}
+
+// Page queries
+export async function createPage(page: InsertPage): Promise<Page | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.insert(pages).values(page);
+  const pageId = (result as any).insertId;
+  const created = await db.select().from(pages).where(eq(pages.id, pageId)).limit(1);
+  return created.length > 0 ? created[0] : null;
+}
+
+export async function getBookPages(bookId: number): Promise<Page[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(pages).where(eq(pages.bookId, bookId));
+}
+
+export async function updatePage(pageId: number, updates: Partial<Page>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(pages).set(updates).where(eq(pages.id, pageId));
+}
+
+// Processing job queries
+export async function createProcessingJob(job: InsertProcessingJob): Promise<ProcessingJob | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.insert(processingJobs).values(job);
+  const jobId = (result as any).insertId;
+  const created = await db.select().from(processingJobs).where(eq(processingJobs.id, jobId)).limit(1);
+  return created.length > 0 ? created[0] : null;
+}
+
+export async function getBookJobs(bookId: number): Promise<ProcessingJob[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(processingJobs).where(eq(processingJobs.bookId, bookId));
+}
+
+export async function updateProcessingJob(jobId: number, updates: Partial<ProcessingJob>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(processingJobs).set(updates).where(eq(processingJobs.id, jobId));
+}
