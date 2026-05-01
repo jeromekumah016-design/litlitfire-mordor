@@ -104,12 +104,26 @@ export async function getUserByOpenId(openId: string) {
 // Book queries
 export async function createBook(book: InsertBook): Promise<Book | null> {
   const db = await getDb();
-  if (!db) return null;
+  if (!db) {
+    console.error("[Database] Cannot create book: database not available");
+    return null;
+  }
 
-  const result = await db.insert(books).values(book);
-  const bookId = (result as any).insertId;
-  const created = await db.select().from(books).where(eq(books.id, bookId)).limit(1);
-  return created.length > 0 ? created[0] : null;
+  try {
+    const result = await db.insert(books).values(book);
+    const bookId = (result as any)[0]?.insertId || (result as any).insertId;
+    
+    if (!bookId) {
+      console.error("[Database] Failed to get insert ID", result);
+      return null;
+    }
+
+    const created = await db.select().from(books).where(eq(books.id, bookId)).limit(1);
+    return created.length > 0 ? created[0] : null;
+  } catch (error) {
+    console.error("[Database] Error creating book:", error);
+    throw error;
+  }
 }
 
 export async function getBook(bookId: number): Promise<Book | null> {
