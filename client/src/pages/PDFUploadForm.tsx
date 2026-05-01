@@ -52,12 +52,17 @@ export default function PDFUploadForm() {
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const pdfData = Buffer.from(arrayBuffer);
+      const uint8Array = new Uint8Array(arrayBuffer);
+      let binaryString = "";
+      for (let i = 0; i < uint8Array.length; i++) {
+        binaryString += String.fromCharCode(uint8Array[i]);
+      }
+      const base64Data = btoa(binaryString);
 
       await uploadMutation.mutateAsync({
         title: title.trim(),
         description: description.trim() || undefined,
-        pdfData,
+        pdfData: base64Data,
       });
     } catch (error) {
       console.error("Upload error:", error);

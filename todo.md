@@ -114,6 +114,13 @@
 - Implement real-time updates via WebSocket or polling
 
 
+## Bug Fixes
+- [x] Fixed PDF upload not starting - converted Buffer to base64 for tRPC serialization
+- [x] Updated frontend to encode PDF as base64 before sending
+- [x] Updated backend to decode base64 to Buffer for processing
+- [x] Tests passing (25 tests)
+- [x] Build successful
+
 ## Context-Aware AI Processing Enhancement
 
 ### Context Features

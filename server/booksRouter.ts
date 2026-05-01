@@ -16,20 +16,23 @@ export const booksRouter = router({
       z.object({
         title: z.string().min(1).max(255),
         description: z.string().optional(),
-        pdfData: z.instanceof(Buffer),
+        pdfData: z.string(), // base64 encoded PDF
       })
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        // Convert base64 to Buffer
+        const pdfBuffer = Buffer.from(input.pdfData, "base64");
+
         // Get PDF metadata
-        const metadata = await getPDFMetadata(input.pdfData);
+        const metadata = await getPDFMetadata(pdfBuffer);
 
         // Calculate price based on page count
         const totalPrice = calculatePrice(metadata.totalPages).toString();
 
         // Upload PDF to storage
         const pdfKey = `books/${ctx.user.id}/${Date.now()}-${input.title.replace(/\s+/g, "-")}.pdf`;
-        const { url: pdfUrl } = await storagePut(pdfKey, input.pdfData, "application/pdf");
+        const { url: pdfUrl } = await storagePut(pdfKey, pdfBuffer, "application/pdf");
 
         // Create book record
         const book = await createBook({
