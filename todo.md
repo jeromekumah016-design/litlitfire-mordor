@@ -112,3 +112,26 @@
 - Use existing image generation helper from template
 - Use S3 storage helpers from template
 - Implement real-time updates via WebSocket or polling
+
+
+## Context-Aware AI Processing Enhancement
+
+### Context Features
+- [x] Enhanced promptService with PageContext tracking
+- [x] Multi-page context awareness in prompt generation
+- [x] Character consistency across pages
+- [x] Setting and mood continuity
+- [x] Previous page context passed to LLM for narrative flow
+- [x] Character extraction from OCR text
+- [x] Updated pipelineService to use context-aware processing
+- [x] Sequential page processing with accumulated context
+- [x] LLM system prompt updated for narrative consistency
+- [x] Tests passing (25 tests, 0 errors)
+- [x] Build successful with context-aware features
+
+### How It Works
+1. As each page is processed, its context (text, prompt, characters, setting) is stored
+2. When processing the next page, the LLM receives the last 3 pages of context
+3. The LLM uses this context to maintain character appearances, settings, and narrative flow
+4. Generated prompts ensure visual and thematic consistency across the entire book
+5. Character names and descriptions are preserved throughout the book

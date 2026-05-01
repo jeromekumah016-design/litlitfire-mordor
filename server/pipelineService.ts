@@ -1,6 +1,10 @@
 import { extractPDFPages, generatePageThumbnail } from "./pdfService";
 import { extractTextFromImage } from "./ocrService";
-import { generateImagePrompt } from "./promptService";
+import {
+  generateImagePrompt,
+  generateImagePromptsWithContext,
+  type PageContext,
+} from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
 import { storagePut } from "./storage";
 import {
@@ -22,18 +26,55 @@ export interface PipelineProgress {
 }
 
 /**
- * Process a single page through the full pipeline:
- * 1. Extract thumbnail
- * 2. Extract text via OCR
- * 3. Generate prompt
- * 4. Generate image
- * 5. Upload to storage
- * 6. Save to database
+ * Extract character names from text using simple heuristics
  */
-export async function processPagePipeline(
+function extractCharactersFromText(text: string): string[] {
+  const characters: string[] = [];
+  const namePattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g;
+  const matches = text.match(namePattern) || [];
+
+  const commonWords = new Set([
+    "The",
+    "And",
+    "But",
+    "For",
+    "With",
+    "From",
+    "That",
+    "This",
+    "Which",
+    "When",
+    "Where",
+    "Why",
+    "How",
+  ]);
+
+  matches.forEach((match) => {
+    if (!commonWords.has(match) && characters.length < 5) {
+      characters.push(match);
+    }
+  });
+
+  const uniqueCharacters: string[] = [];
+  const seen = new Set<string>();
+  for (const char of characters) {
+    if (!seen.has(char)) {
+      uniqueCharacters.push(char);
+      seen.add(char);
+    }
+  }
+  return uniqueCharacters;
+}
+
+/**
+ * Process a single page with context awareness from previous pages
+ */
+async function processPagePipelineWithContext(
   bookId: number,
   pageNumber: number,
   pdfBuffer: Buffer,
+  ocrText: string,
+  previousContexts: PageContext[],
   onProgress?: (progress: PipelineProgress) => void
 ): Promise<Page | null> {
   try {
@@ -43,16 +84,31 @@ export async function processPagePipeline(
 
     // Upload thumbnail to storage
     const thumbnailKey = `books/${bookId}/pages/${pageNumber}/thumbnail.png`;
-    const { url: thumbnailUrl } = await storagePut(thumbnailKey, thumbnailBuffer, "image/png");
+    const { url: thumbnailUrl } = await storagePut(
+      thumbnailKey,
+      thumbnailBuffer,
+      "image/png"
+    );
 
-    // Step 2: Extract text via OCR
-    console.log(`[Pipeline] Processing page ${pageNumber}: Extracting text via OCR...`);
-    const ocrResult = await extractTextFromImage(thumbnailBuffer);
-    const ocrText = ocrResult.text;
+    // Step 2: Use provided OCR text (already extracted)
+    console.log(`[Pipeline] Processing page ${pageNumber}: Using OCR text...`);
 
-    // Step 3: Generate prompt
-    console.log(`[Pipeline] Processing page ${pageNumber}: Generating prompt...`);
-    const promptResult = await generateImagePrompt(ocrText, pageNumber);
+    // Step 3: Generate prompt with context awareness
+    console.log(`[Pipeline] Processing page ${pageNumber}: Generating context-aware prompt...`);
+    const promptResult = await generateImagePrompt(
+      ocrText,
+      pageNumber,
+      previousContexts
+    );
+
+    // Store context for next page
+    previousContexts.push({
+      pageNumber,
+      text: ocrText,
+      prompt: promptResult.prompt,
+      characters: extractCharactersFromText(ocrText),
+      setting: promptResult.mood,
+    });
 
     // Step 4: Generate image
     console.log(`[Pipeline] Processing page ${pageNumber}: Generating image...`);
@@ -71,7 +127,11 @@ export async function processPagePipeline(
         const imageBuffer = Buffer.from(arrayBuffer);
 
         generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`;
-        const uploadResult = await storagePut(generatedImageKey, imageBuffer, "image/png");
+        const uploadResult = await storagePut(
+          generatedImageKey,
+          imageBuffer,
+          "image/png"
+        );
         generatedImageUrl = uploadResult.url;
       }
     } catch (error) {
@@ -121,7 +181,109 @@ export async function processPagePipeline(
 }
 
 /**
- * Process all pages of a PDF book through the pipeline
+ * Process a single page through the full pipeline (legacy, without context)
+ */
+export async function processPagePipeline(
+  bookId: number,
+  pageNumber: number,
+  pdfBuffer: Buffer,
+  onProgress?: (progress: PipelineProgress) => void
+): Promise<Page | null> {
+  try {
+    // Step 1: Extract thumbnail
+    console.log(`[Pipeline] Processing page ${pageNumber}: Extracting thumbnail...`);
+    const thumbnailBuffer = await generatePageThumbnail(pdfBuffer, pageNumber, 1.0);
+
+    // Upload thumbnail to storage
+    const thumbnailKey = `books/${bookId}/pages/${pageNumber}/thumbnail.png`;
+    const { url: thumbnailUrl } = await storagePut(
+      thumbnailKey,
+      thumbnailBuffer,
+      "image/png"
+    );
+
+    // Step 2: Extract text via OCR
+    console.log(`[Pipeline] Processing page ${pageNumber}: Extracting text via OCR...`);
+    const ocrResult = await extractTextFromImage(thumbnailBuffer);
+    const ocrText = ocrResult.text;
+
+    // Step 3: Generate prompt
+    console.log(`[Pipeline] Processing page ${pageNumber}: Generating prompt...`);
+    const promptResult = await generateImagePrompt(ocrText, pageNumber);
+
+    // Step 4: Generate image
+    console.log(`[Pipeline] Processing page ${pageNumber}: Generating image...`);
+    let generatedImageUrl: string | null = null;
+    let generatedImageKey: string | null = null;
+
+    try {
+      const imageResult = await generateImage({
+        prompt: promptResult.prompt,
+      });
+
+      if (imageResult.url) {
+        // Download the generated image and upload to storage
+        const response = await fetch(imageResult.url);
+        const arrayBuffer = await response.arrayBuffer();
+        const imageBuffer = Buffer.from(arrayBuffer);
+
+        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`;
+        const uploadResult = await storagePut(
+          generatedImageKey,
+          imageBuffer,
+          "image/png"
+        );
+        generatedImageUrl = uploadResult.url;
+      }
+    } catch (error) {
+      console.error(`[Pipeline] Failed to generate image for page ${pageNumber}:`, error);
+      // Continue without generated image
+    }
+
+    // Step 5: Save to database
+    console.log(`[Pipeline] Processing page ${pageNumber}: Saving to database...`);
+    const page = await createPage({
+      bookId,
+      pageNumber,
+      thumbnailFileKey: thumbnailKey,
+      thumbnailUrl,
+      ocrText,
+      generatedPrompt: promptResult.prompt,
+      generatedImageFileKey: generatedImageKey || undefined,
+      generatedImageUrl: generatedImageUrl || undefined,
+      processingStatus: "done",
+    });
+
+    if (onProgress) {
+      onProgress({
+        bookId,
+        totalPages: 0,
+        processedPages: pageNumber,
+        currentPage: pageNumber,
+        status: "processing",
+      });
+    }
+
+    return page;
+  } catch (error) {
+    console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
+
+    // Save error state to database
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await createPage({
+      bookId,
+      pageNumber,
+      processingStatus: "error",
+      errorMessage,
+    });
+
+    throw error;
+  }
+}
+
+/**
+ * Process all pages of a PDF book through the pipeline with context awareness
+ * Each page is processed with knowledge of previous pages for narrative continuity
  */
 export async function processBookPipeline(
   bookId: number,
@@ -130,21 +292,32 @@ export async function processBookPipeline(
 ): Promise<{ successCount: number; failureCount: number }> {
   let successCount = 0;
   let failureCount = 0;
+  const pageContexts: PageContext[] = [];
 
   try {
     // Extract PDF pages to get total count
     const pdfData = await extractPDFPages(pdfBuffer);
     const totalPages = pdfData.totalPages;
+    const ocrTexts = pdfData.pages.map((p) => p.text);
 
-    console.log(`[Pipeline] Starting processing for book ${bookId} with ${totalPages} pages`);
+    console.log(
+      `[Pipeline] Starting context-aware processing for book ${bookId} with ${totalPages} pages`
+    );
 
     // Update book status to processing
     await updateBook(bookId, { processingStatus: "processing" });
 
-    // Process each page sequentially
+    // Process each page sequentially with context awareness
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       try {
-        await processPagePipeline(bookId, pageNum, pdfBuffer, onProgress);
+        await processPagePipelineWithContext(
+          bookId,
+          pageNum,
+          pdfBuffer,
+          ocrTexts[pageNum - 1] || "",
+          pageContexts,
+          onProgress
+        );
         successCount++;
       } catch (error) {
         console.error(`[Pipeline] Failed to process page ${pageNum}:`, error);
@@ -168,7 +341,7 @@ export async function processBookPipeline(
     await updateBook(bookId, { processingStatus: finalStatus });
 
     console.log(
-      `[Pipeline] Completed processing for book ${bookId}: ${successCount} success, ${failureCount} failed`
+      `[Pipeline] Completed context-aware processing for book ${bookId}: ${successCount} success, ${failureCount} failed`
     );
 
     if (onProgress) {
