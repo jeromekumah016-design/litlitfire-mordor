@@ -1,26 +1,56 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import confetti from "canvas-confetti";
 
 export default function PDFUploadForm() {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  // Reset success animation after 2 seconds
+  useEffect(() => {
+    if (isSuccess) {
+      const timer = setTimeout(() => {
+        setIsSuccess(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSuccess]);
 
   const uploadMutation = trpc.books.upload.useMutation({
     onSuccess: (data) => {
+      setIsSuccess(true);
+      setUploadProgress(100);
+      
+      // Trigger confetti celebration
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b"],
+      });
+      
       toast.success(`Book "${data.title}" uploaded successfully! Processing ${data.pageCount} pages.`);
-      setFile(null);
-      setTitle("");
-      setDescription("");
+      
+      // Reset form after success animation
+      setTimeout(() => {
+        setFile(null);
+        setTitle("");
+        setDescription("");
+        setUploadProgress(0);
+      }, 2000);
     },
     onError: (error) => {
       toast.error(`Upload failed: ${error.message}`);
+      setUploadProgress(0);
     },
   });
 
@@ -49,23 +79,35 @@ export default function PDFUploadForm() {
     }
 
     setIsLoading(true);
+    setUploadProgress(10);
 
     try {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       let binaryString = "";
+      
+      // Simulate progress during encoding
+      const chunkSize = Math.ceil(uint8Array.length / 10);
       for (let i = 0; i < uint8Array.length; i++) {
         binaryString += String.fromCharCode(uint8Array[i]);
+        if (i % chunkSize === 0) {
+          setUploadProgress(10 + Math.floor((i / uint8Array.length) * 40));
+        }
       }
+      
       const base64Data = btoa(binaryString);
+      setUploadProgress(60);
 
       await uploadMutation.mutateAsync({
         title: title.trim(),
         description: description.trim() || undefined,
         pdfData: base64Data,
       });
+      
+      setUploadProgress(90);
     } catch (error) {
       console.error("Upload error:", error);
+      setUploadProgress(0);
     } finally {
       setIsLoading(false);
     }
@@ -137,14 +179,45 @@ export default function PDFUploadForm() {
             />
           </div>
 
+          {/* Progress Bar */}
+          {isLoading && (
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium">Uploading...</span>
+                <span className="text-sm text-muted-foreground">{uploadProgress}%</span>
+              </div>
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Success Animation */}
+          {isSuccess && (
+            <div className="flex items-center justify-center gap-3 p-4 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 animate-in fade-in duration-300">
+              <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400 animate-bounce" />
+              <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                Upload successful! Processing started...
+              </span>
+            </div>
+          )}
+
           {/* Submit Button */}
           <Button
             type="submit"
-            disabled={!file || !title.trim() || isLoading}
+            disabled={!file || !title.trim() || isLoading || isSuccess}
             className="w-full"
             size="lg"
           >
-            {isLoading ? (
+            {isSuccess ? (
+              <>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Upload Complete
+              </>
+            ) : isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Uploading...

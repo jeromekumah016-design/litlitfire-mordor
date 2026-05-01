@@ -142,3 +142,14 @@
 3. The LLM uses this context to maintain character appearances, settings, and narrative flow
 4. Generated prompts ensure visual and thematic consistency across the entire book
 5. Character names and descriptions are preserved throughout the book
+
+
+## UI Enhancements
+
+### Progress Bar & Success Animation
+- [x] Add visual progress bar to upload form
+- [ ] Implement real upload progress tracking tied to request lifecycle
+- [x] Add success animation after upload completes (2-second display)
+- [x] Add success message with checkmark icon and bounce animation
+- [x] Smooth transitions between states (fade-in, bounce animations)
+- [x] Add confetti celebration effect on successful upload (canvas-confetti)
