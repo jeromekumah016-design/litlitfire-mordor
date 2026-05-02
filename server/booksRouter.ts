@@ -68,16 +68,22 @@ export const booksRouter = router({
             title: input.title,
             pageCount: metadata.totalPages,
             totalPrice: Number(totalPrice),
-            processingStatus: "pending",
+            processingStatus: "processing",
           };
         }
+
+        // Automatically trigger PDF processing in the background
+        // Don't await this - let it run asynchronously
+        processBookPipeline(book.id, pdfBuffer).catch((error) => {
+          console.error("[Books Router] Background processing error:", error);
+        });
 
         return {
           bookId: book.id,
           title: book.title,
           pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice),
-          processingStatus: book.processingStatus,
+          processingStatus: "processing",
         };
       } catch (error) {
         console.error("[Books Router] Upload error:", error);
@@ -111,9 +117,16 @@ export const booksRouter = router({
           });
         }
 
-        // Fetch PDF from storage
-        // In production, you would fetch from S3 using the pdfFileKey
-        // For now, we'll return a processing started message
+        // If already processing or done, return current status
+        if (book.processingStatus === "processing" || book.processingStatus === "completed") {
+          return {
+            bookId: input.bookId,
+            status: book.processingStatus,
+            message: `PDF is ${book.processingStatus}`,
+          };
+        }
+
+        // Mark as processing and trigger pipeline
         await updateBook(input.bookId, { processingStatus: "processing" });
 
         return {

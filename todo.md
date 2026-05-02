@@ -153,3 +153,12 @@
 - [x] Add success message with checkmark icon and bounce animation
 - [x] Smooth transitions between states (fade-in, bounce animations)
 - [x] Add confetti celebration effect on successful upload (canvas-confetti)
+
+
+## CRITICAL BUG FIXES
+
+### Processing Pipeline Not Starting
+- [x] Fix: Upload endpoint now automatically invokes processBookPipeline in background
+- [x] Fix: Fire-and-forget async processing starts immediately after upload
+- [x] Fix: Real-time status updates via polling (DevModeDiagnostics every 2 seconds)
+- [ ] Test: Verify processing starts within seconds of upload (manual test needed)
