@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Play, Eye } from "lucide-react";
+import { Loader2, Play, Eye, Image } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import PDFUploadForm from "./PDFUploadForm";
 import PDFPreviewCarousel from "./PDFPreviewCarousel";
 import DevModeDiagnostics from "./DevModeDiagnostics";
 
 export default function Books() {
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
+  const [, setLocation] = useLocation();
 
   const booksQuery = trpc.books.list.useQuery();
   const bookDetailsQuery = trpc.books.getDetails.useQuery(
@@ -98,6 +100,16 @@ export default function Books() {
                         Start Processing
                       </>
                     )}
+                  </Button>
+                )}
+
+                {book.pages.some((p) => p.generatedImageUrl) && (
+                  <Button
+                    onClick={() => setLocation(`/gallery/${book.id}`)}
+                    className="w-full bg-amber-600 hover:bg-amber-700"
+                  >
+                    <Image className="mr-2 h-4 w-4" />
+                    View Gallery
                   </Button>
                 )}
               </CardContent>

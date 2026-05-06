@@ -6,9 +6,9 @@
 - [x] Implement books.processPdf endpoint to trigger per-page extraction
 - [x] Add file upload handler for PDF files
 - [x] Integrate with S3 storage for PDF files (storagePut ready)
-- [ ] Create background job queue for batch processing (deferred - v2.0 enhancement)
-  - [x] Implemented fire-and-forget async processing on upload (v1.0)
-  - [x] Implemented automatic retry worker for failed pages (v1.0)
+- [ ] Create durable background job queue with persistence (v2.0 enhancement)
+  - [x] Implemented fire-and-forget async processing on upload (v1.0 COMPLETE)
+  - [x] Implemented automatic retry worker for failed pages (v1.0 COMPLETE)
   - [ ] Durable job queue with persistence (future - v2.0)
 
 ### 2. Real PDF Preview Carousel
@@ -178,3 +178,20 @@
 - [x] Add retry history tracking (retryHistory table)
 - [x] Integrate retry logic into pipelineService error handling
 - [x] Build succeeds with 0 TypeScript errors
+
+
+## Gallery View - Digital Comic Book Reader
+
+### Implementation
+- [x] Create ImageGallery component with smooth page transitions
+- [x] Add keyboard navigation (arrow keys, space, Enter)
+- [x] Add touch gestures (swipe left/right)
+- [x] Add page counter and progress indicator
+- [x] Add zoom/fit-to-screen controls
+- [x] Add fullscreen mode
+- [x] Add image download functionality
+- [x] Smooth fade/slide animations between pages
+- [x] Mobile-responsive design
+- [x] Create ImageGalleryView page for viewing generated images
+- [x] Apply mystical fantasy color scheme (dark navy, gold, amber)
+- [x] Add ornate styling with gradients and shadows
