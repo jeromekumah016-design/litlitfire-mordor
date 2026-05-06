@@ -162,3 +162,16 @@
 - [x] Fix: Fire-and-forget async processing starts immediately after upload
 - [x] Fix: Real-time status updates via polling (DevModeDiagnostics every 2 seconds)
 - [ ] Test: Verify processing starts within seconds of upload (manual test needed)
+
+
+## Retry Mechanism for Failed Pages
+
+### Implementation
+- [x] Create retryService.ts with exponential backoff logic
+- [x] Add retry_count and last_retry_at fields to pages table
+- [x] Implement automatic retry worker (retryWorker.ts with exponential backoff)
+- [x] Add manual retry endpoint for user-triggered retries (retryRouter)
+- [ ] Display retry status in Dev Mode Diagnostics (UI enhancement)
+- [x] Add retry history tracking (retryHistory table)
+- [x] Integrate retry logic into pipelineService error handling
+- [x] Build succeeds with 0 TypeScript errors

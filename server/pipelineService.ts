@@ -14,6 +14,7 @@ import {
   updateProcessingJob,
   updateBook,
 } from "./db";
+import { markPageForRetry } from "./retryService";
 import type { Page } from "../drizzle/schema";
 
 export interface PipelineProgress {
@@ -135,8 +136,31 @@ async function processPagePipelineWithContext(
         generatedImageUrl = uploadResult.url;
       }
     } catch (error) {
-      console.error(`[Pipeline] Failed to generate image for page ${pageNumber}:`, error);
-      // Continue without generated image
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[Pipeline] Failed to generate image for page ${pageNumber}:`, errorMsg);
+      
+      // Mark page for retry with exponential backoff
+      const errorPage = await createPage({
+        bookId,
+        pageNumber,
+        thumbnailFileKey: thumbnailKey,
+        thumbnailUrl,
+        ocrText,
+        generatedPrompt: promptResult.prompt,
+        processingStatus: "error",
+        errorMessage: `Image generation failed: ${errorMsg}`,
+      });
+      
+      if (errorPage) {
+        await markPageForRetry(
+          errorPage.id,
+          bookId,
+          `Image generation failed: ${errorMsg}`,
+          "Image generation error - scheduled for automatic retry"
+        );
+      }
+      
+      throw error;
     }
 
     // Step 5: Save to database
@@ -236,8 +260,31 @@ export async function processPagePipeline(
         generatedImageUrl = uploadResult.url;
       }
     } catch (error) {
-      console.error(`[Pipeline] Failed to generate image for page ${pageNumber}:`, error);
-      // Continue without generated image
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[Pipeline] Failed to generate image for page ${pageNumber}:`, errorMsg);
+      
+      // Mark page for retry with exponential backoff
+      const errorPage = await createPage({
+        bookId,
+        pageNumber,
+        thumbnailFileKey: thumbnailKey,
+        thumbnailUrl,
+        ocrText,
+        generatedPrompt: promptResult.prompt,
+        processingStatus: "error",
+        errorMessage: `Image generation failed: ${errorMsg}`,
+      });
+      
+      if (errorPage) {
+        await markPageForRetry(
+          errorPage.id,
+          bookId,
+          `Image generation failed: ${errorMsg}`,
+          "Image generation error - scheduled for automatic retry"
+        );
+      }
+      
+      throw error;
     }
 
     // Step 5: Save to database

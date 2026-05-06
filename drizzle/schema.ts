@@ -70,6 +70,10 @@ export const pages = mysqlTable(
     generatedImageUrl: varchar("generatedImageUrl", { length: 512 }), // S3 URL for generated image
     processingStatus: mysqlEnum("processingStatus", ["pending", "processing", "done", "error"]).default("pending").notNull(),
     errorMessage: text("errorMessage"), // Error details if processing failed
+    retryCount: int("retryCount").default(0).notNull(), // Number of retry attempts
+    maxRetries: int("maxRetries").default(3).notNull(), // Maximum retry attempts allowed
+    lastRetryAt: timestamp("lastRetryAt"), // Timestamp of last retry attempt
+    nextRetryAt: timestamp("nextRetryAt"), // Scheduled time for next retry
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -82,6 +86,33 @@ export const pages = mysqlTable(
 
 export type Page = typeof pages.$inferSelect;
 export type InsertPage = typeof pages.$inferInsert;
+
+/**
+ * Retry history table: tracks all retry attempts for failed pages
+ */
+export const retryHistory = mysqlTable(
+  "retryHistory",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    pageId: int("pageId").notNull(),
+    bookId: int("bookId").notNull(),
+    attemptNumber: int("attemptNumber").notNull(),
+    status: mysqlEnum("status", ["pending", "processing", "success", "failed"]).default("pending").notNull(),
+    errorMessage: text("errorMessage"),
+    retryReason: varchar("retryReason", { length: 255 }),
+    backoffDelayMs: int("backoffDelayMs").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  (table) => ({
+    pageIdIdx: index("pageIdIdx").on(table.pageId),
+    bookIdIdx: index("bookIdIdx").on(table.bookId),
+    statusIdx: index("statusIdx").on(table.status),
+  })
+);
+
+export type RetryHistory = typeof retryHistory.$inferSelect;
+export type InsertRetryHistory = typeof retryHistory.$inferInsert;
 
 /**
  * Processing jobs table: tracks async processing tasks
@@ -134,5 +165,16 @@ export const processingJobsRelations = relations(processingJobs, ({ one }) => ({
   page: one(pages, {
     fields: [processingJobs.pageId],
     references: [pages.id],
+  }),
+}));
+
+export const retryHistoryRelations = relations(retryHistory, ({ one }) => ({
+  page: one(pages, {
+    fields: [retryHistory.pageId],
+    references: [pages.id],
+  }),
+  book: one(books, {
+    fields: [retryHistory.bookId],
+    references: [books.id],
   }),
 }));

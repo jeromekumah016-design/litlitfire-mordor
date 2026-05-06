@@ -15,6 +15,13 @@
       "when": 1777563653548,
       "tag": "0001_new_siren",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1778008029581,
+      "tag": "0002_free_bishop",
+      "breakpoints": true
     }
   ]
 }
