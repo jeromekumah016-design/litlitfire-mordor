@@ -41,6 +41,8 @@ export default function DevModeDiagnostics({ bookId }: DevModeDiagnosticsProps) 
     processing: pages.filter((p) => p.processingStatus === "processing").length,
     done: pages.filter((p) => p.processingStatus === "done").length,
     error: pages.filter((p) => p.processingStatus === "error").length,
+    needsRetry: pages.filter((p) => p.processingStatus === "error" && p.retryCount && p.retryCount < (p.maxRetries || 3)).length,
+    totalRetries: pages.reduce((sum, p) => sum + (p.retryCount || 0), 0),
   };
 
   return (

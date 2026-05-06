@@ -208,6 +208,10 @@ export const booksRouter = router({
             generatedImageUrl: page.generatedImageUrl,
             processingStatus: page.processingStatus,
             errorMessage: page.errorMessage,
+            retryCount: page.retryCount,
+            maxRetries: page.maxRetries,
+            lastRetryAt: page.lastRetryAt,
+            nextRetryAt: page.nextRetryAt,
           })),
           createdAt: book.createdAt,
         };
