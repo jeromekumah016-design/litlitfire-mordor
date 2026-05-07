@@ -216,6 +216,7 @@
 - [ ] Add user profile dropdown with styling (future enhancement)
 
 ### Books Page Enhancement
+- [x] Remove "Your Books" list section from main page (COMPLETE)
 - [ ] Redesign book list with card layout (future enhancement)
 - [ ] Add book cover thumbnails (future enhancement)
 - [ ] Add status badges with mystical styling (future enhancement)
@@ -232,3 +233,12 @@
 - [x] Add glowing text effects (gradient text, glow effects)
 - [x] Add ornate borders and dividers (amber borders, decorative elements)
 - [x] Add smooth animations throughout (animations on cards, buttons, elements)
+
+
+## PDF Metadata Extraction
+
+### Auto-fill Title & Description
+- [x] Extract PDF metadata (title, author, subject, keywords)
+- [x] Auto-populate form fields with extracted metadata
+- [x] Allow user to edit extracted values before upload
+- [x] Fallback to filename if metadata not available

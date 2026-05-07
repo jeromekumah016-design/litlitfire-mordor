@@ -54,7 +54,56 @@ export default function PDFUploadForm() {
     },
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const extractPDFMetadata = async (pdfFile: File) => {
+    try {
+      const arrayBuffer = await pdfFile.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const pdfText = new TextDecoder().decode(uint8Array);
+      
+      // Extract metadata fields from PDF
+      let extractedTitle = "";
+      let extractedDescription = "";
+      let extractedAuthor = "";
+      
+      // Try to extract from /Title metadata
+      const titleMatch = pdfText.match(/\/Title\s*\(([^)]+)\)/);
+      if (titleMatch) {
+        extractedTitle = titleMatch[1].trim();
+      }
+      
+      // Try to extract from /Subject metadata (use as description)
+      const subjectMatch = pdfText.match(/\/Subject\s*\(([^)]+)\)/);
+      if (subjectMatch) {
+        extractedDescription = subjectMatch[1].trim();
+      }
+      
+      // Try to extract from /Author metadata
+      const authorMatch = pdfText.match(/\/Author\s*\(([^)]+)\)/);
+      if (authorMatch) {
+        extractedAuthor = authorMatch[1].trim();
+      }
+      
+      // If no subject but we have author, use author as description
+      if (!extractedDescription && extractedAuthor) {
+        extractedDescription = `By ${extractedAuthor}`;
+      }
+      
+      // Fallback to filename without extension if no title found
+      if (!extractedTitle) {
+        extractedTitle = pdfFile.name.replace(/\.pdf$/i, "");
+      }
+      
+      return { extractedTitle, extractedDescription };
+    } catch (error) {
+      console.error("Error extracting PDF metadata:", error);
+      return {
+        extractedTitle: pdfFile.name.replace(/\.pdf$/i, ""),
+        extractedDescription: "",
+      };
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       if (selectedFile.type !== "application/pdf") {
@@ -67,6 +116,13 @@ export default function PDFUploadForm() {
         return;
       }
       setFile(selectedFile);
+      
+      // Extract and auto-fill metadata
+      const { extractedTitle, extractedDescription } = await extractPDFMetadata(selectedFile);
+      setTitle(extractedTitle);
+      // Always set description from current file (even if empty) to avoid stale metadata
+      setDescription(extractedDescription);
+      toast.success(`Extracted metadata: "${extractedTitle}"${extractedDescription ? ` - ${extractedDescription}` : ""}`);
     }
   };
 
@@ -163,6 +219,11 @@ export default function PDFUploadForm() {
               placeholder="Enter book title"
               disabled={isLoading}
             />
+            {file && title && (
+              <p className="text-xs text-muted-foreground">
+                Auto-filled from PDF metadata (editable)
+              </p>
+            )}
           </div>
 
           {/* Description */}
@@ -177,6 +238,11 @@ export default function PDFUploadForm() {
               placeholder="Enter book description"
               disabled={isLoading}
             />
+            {file && description && (
+              <p className="text-xs text-muted-foreground">
+                Auto-filled from PDF metadata (editable)
+              </p>
+            )}
           </div>
 
           {/* Progress Bar */}
