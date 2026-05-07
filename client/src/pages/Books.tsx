@@ -180,71 +180,7 @@ export default function Books() {
         </div>
       </div>
 
-      {/* Books List */}
-      {booksQuery.data && booksQuery.data.length > 0 && (
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Your Books</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {booksQuery.data.map((book) => (
-              <Card key={book.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="text-lg line-clamp-2">{book.title}</CardTitle>
-                  <CardDescription>{book.pageCount} pages</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {book.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">{book.description}</p>
-                  )}
 
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Status:</span>
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        book.processingStatus === "completed"
-                          ? "bg-green-100 text-green-700"
-                          : book.processingStatus === "processing"
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {book.processingStatus}
-                    </span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleViewBook(book.id)}
-                      className="flex-1"
-                    >
-                      <Eye className="mr-1 h-4 w-4" />
-                      View
-                    </Button>
-                    {book.processingStatus === "pending" && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleProcessPdf(book.id)}
-                        disabled={processPdfMutation.isPending}
-                        className="flex-1"
-                      >
-                        <Play className="mr-1 h-4 w-4" />
-                        Process
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {booksQuery.isLoading && (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      )}
     </div>
   );
 }
