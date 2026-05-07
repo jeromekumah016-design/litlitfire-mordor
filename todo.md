@@ -6,10 +6,10 @@
 - [x] Implement books.processPdf endpoint to trigger per-page extraction
 - [x] Add file upload handler for PDF files
 - [x] Integrate with S3 storage for PDF files (storagePut ready)
-- [ ] Create durable background job queue with persistence (v2.0 enhancement)
+- [ ] Create durable background job queue with persistence (v2.0 enhancement - DEFERRED)
   - [x] Implemented fire-and-forget async processing on upload (v1.0 COMPLETE)
   - [x] Implemented automatic retry worker for failed pages (v1.0 COMPLETE)
-  - [ ] Durable job queue with persistence (future - v2.0)
+  - [ ] Durable job queue with persistence (future - v2.0 ENHANCEMENT)
 
 ### 2. Real PDF Preview Carousel
 - [x] Extract page thumbnails from uploaded PDFs (pdfService.generatePageThumbnail)
