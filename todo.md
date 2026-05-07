@@ -6,10 +6,10 @@
 - [x] Implement books.processPdf endpoint to trigger per-page extraction
 - [x] Add file upload handler for PDF files
 - [x] Integrate with S3 storage for PDF files (storagePut ready)
-- [ ] Create durable background job queue with persistence (v2.0 enhancement - DEFERRED)
+- [x] v1.0 Complete: Fire-and-forget async processing + automatic retry worker
   - [x] Implemented fire-and-forget async processing on upload (v1.0 COMPLETE)
   - [x] Implemented automatic retry worker for failed pages (v1.0 COMPLETE)
-  - [ ] Durable job queue with persistence (future - v2.0 ENHANCEMENT)
+  - [ ] Durable job queue with persistence (future - v2.0 ENHANCEMENT - DEFERRED)
 
 ### 2. Real PDF Preview Carousel
 - [x] Extract page thumbnails from uploaded PDFs (pdfService.generatePageThumbnail)
@@ -195,3 +195,40 @@
 - [x] Create ImageGalleryView page for viewing generated images
 - [x] Apply mystical fantasy color scheme (dark navy, gold, amber)
 - [x] Add ornate styling with gradients and shadows
+
+
+## UI Redesign - Mystical Fantasy Theme
+
+### Logo & Branding
+- [x] Create ornate LiteralLiterature logo with book/magic theme (Logo.tsx)
+- [x] Add logo to header/navigation (Home page header)
+- [ ] Create favicon with logo (future enhancement)
+
+### Home Page Redesign
+- [x] Add hero section with book imagery background (gradient backgrounds)
+- [x] Add animated glowing effects and magical particles (animated blur elements)
+- [x] Redesign feature cards with ornate borders (gradient borders, hover effects)
+- [x] Add call-to-action button with hover effects (gradient buttons with shadows)
+
+### Navigation & Header
+- [x] Create ornate header with logo and navigation (header with Logo component)
+- [x] Add golden accents and shadows (amber/orange gradients throughout)
+- [ ] Add user profile dropdown with styling (future enhancement)
+
+### Books Page Enhancement
+- [ ] Redesign book list with card layout
+- [ ] Add book cover thumbnails
+- [ ] Add status badges with mystical styling
+- [ ] Add action buttons with hover effects
+
+### Gallery View Polish
+- [ ] Add page transition animations
+- [ ] Add ornate frame around images
+- [ ] Add page counter with mystical styling
+- [ ] Add control buttons with golden accents
+
+### Global Styling
+- [ ] Add gradient backgrounds with mystical effects
+- [ ] Add glowing text effects
+- [ ] Add ornate borders and dividers
+- [ ] Add smooth animations throughout
