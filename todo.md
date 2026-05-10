@@ -242,3 +242,59 @@
 - [x] Auto-populate form fields with extracted metadata
 - [x] Allow user to edit extracted values before upload
 - [x] Fallback to filename if metadata not available
+
+
+## Performance Optimization (v2.0)
+
+### Frontend Optimization
+- [ ] Implement React.memo for expensive components (PDFPreviewCarousel, ImageGallery, DevModeDiagnostics)
+- [ ] Add useMemo hooks for computed values and derived state
+- [ ] Optimize re-renders with proper dependency arrays
+- [ ] Implement lazy loading for gallery images (virtualization)
+- [ ] Optimize form state management (PDFUploadForm)
+- [ ] Add request deduplication for polling queries
+- [ ] Implement pagination for book lists
+- [ ] Optimize CSS-in-JS and Tailwind class usage
+
+### Backend Optimization
+- [ ] Optimize pipelineService for sequential processing efficiency
+- [ ] Implement batch processing for multiple pages
+- [ ] Add caching layer for OCR results (Redis or in-memory)
+- [ ] Optimize promptService LLM calls (reduce token usage)
+- [ ] Implement connection pooling for database
+- [ ] Add query result caching for frequently accessed data
+- [ ] Optimize file I/O operations (streaming vs buffering)
+- [ ] Implement request timeouts and circuit breakers
+
+### Database Optimization
+- [ ] Add composite indexes for common query patterns
+- [ ] Optimize books.list query with pagination
+- [ ] Add query result caching layer
+- [ ] Implement database connection pooling
+- [ ] Analyze slow queries and add strategic indexes
+- [ ] Optimize JOIN operations in complex queries
+- [ ] Add database query monitoring/logging
+
+### Data Structure Optimization
+- [ ] Use typed arrays for binary data (Uint8Array instead of Buffer where possible)
+- [ ] Implement object pooling for frequently created objects
+- [ ] Optimize array operations (avoid unnecessary copies)
+- [ ] Use Map/Set instead of objects for lookups
+- [ ] Implement efficient pagination cursors
+- [ ] Add memory leak detection and cleanup
+
+### Memory Management
+- [ ] Implement garbage collection optimization
+- [ ] Add memory profiling for large PDF processing
+- [ ] Optimize image processing memory usage
+- [ ] Implement streaming for large file uploads
+- [ ] Add cleanup handlers for event listeners
+- [ ] Monitor and optimize heap usage
+
+### Monitoring & Metrics
+- [ ] Add performance monitoring (Core Web Vitals)
+- [ ] Implement APM (Application Performance Monitoring)
+- [ ] Add database query performance logging
+- [ ] Track memory usage and GC events
+- [ ] Monitor API response times
+- [ ] Add error rate tracking
