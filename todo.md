@@ -247,24 +247,24 @@
 ## Performance Optimization (v2.0)
 
 ### Frontend Optimization
-- [ ] Implement React.memo for expensive components (PDFPreviewCarousel, ImageGallery, DevModeDiagnostics)
+- [ ] Integrate optimized carousel/gallery components into existing routes
+- [ ] Apply memoization to existing live components (DevModeDiagnostics, PDFUploadForm)
 - [ ] Add useMemo hooks for computed values and derived state
 - [ ] Optimize re-renders with proper dependency arrays
 - [ ] Implement lazy loading for gallery images (virtualization)
-- [ ] Optimize form state management (PDFUploadForm)
 - [ ] Add request deduplication for polling queries
-- [ ] Implement pagination for book lists
+- [ ] Wire pagination into Books page with page controls
 - [ ] Optimize CSS-in-JS and Tailwind class usage
 
 ### Backend Optimization
-- [ ] Optimize pipelineService for sequential processing efficiency
-- [ ] Implement batch processing for multiple pages
-- [ ] Add caching layer for OCR results (Redis or in-memory)
-- [ ] Optimize promptService LLM calls (reduce token usage)
-- [ ] Implement connection pooling for database
-- [ ] Add query result caching for frequently accessed data
-- [ ] Optimize file I/O operations (streaming vs buffering)
-- [ ] Implement request timeouts and circuit breakers
+- [ ] Integrate pipelineServiceOptimized into production pipeline
+- [ ] Verify batch processing works with actual page data
+- [ ] Implement OCR result caching in active pipeline
+- [ ] Verify promptService LLM token optimization
+- [ ] Configure real database connection pooling
+- [ ] Wire query result caching into books.list and gallery routes
+- [ ] Implement streaming for large file uploads
+- [ ] Add request timeouts and circuit breakers
 
 ### Database Optimization
 - [ ] Add composite indexes for common query patterns

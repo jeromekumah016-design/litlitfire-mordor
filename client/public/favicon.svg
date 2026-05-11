@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Background -->
+  <rect width="128" height="128" fill="#1a1a2e" rx="24"/>
+  
+  <!-- Outer ornate circle -->
+  <circle cx="64" cy="64" r="60" fill="none" stroke="#d4a574" stroke-width="2" opacity="0.8"/>
+  <circle cx="64" cy="64" r="58" fill="none" stroke="#f4a460" stroke-width="1" opacity="0.5"/>
+  
+  <!-- Book shape -->
+  <g transform="translate(64, 64)">
+    <!-- Left page -->
+    <path d="M -20 -18 L -8 -18 L -8 18 L -20 18 Z" fill="#8b7355" stroke="#d4a574" stroke-width="1.5"/>
+    
+    <!-- Right page -->
+    <path d="M -8 -18 L 20 -18 L 20 18 L -8 18 Z" fill="#c9a961" stroke="#d4a574" stroke-width="1.5"/>
+    
+    <!-- Spine -->
+    <line x1="-8" y1="-18" x2="-8" y2="18" stroke="#d4a574" stroke-width="2"/>
+    
+    <!-- Decorative lines on pages -->
+    <line x1="-6" y1="-12" x2="16" y2="-12" stroke="#8b6914" stroke-width="1" opacity="0.6"/>
+    <line x1="-6" y1="-6" x2="16" y2="-6" stroke="#8b6914" stroke-width="1" opacity="0.6"/>
+    <line x1="-6" y1="0" x2="16" y2="0" stroke="#8b6914" stroke-width="1" opacity="0.6"/>
+    <line x1="-6" y1="6" x2="16" y2="6" stroke="#8b6914" stroke-width="1" opacity="0.6"/>
+    <line x1="-6" y1="12" x2="16" y2="12" stroke="#8b6914" stroke-width="1" opacity="0.6"/>
+    
+    <!-- Magical sparkle -->
+    <circle cx="12" cy="-8" r="2.5" fill="#ffd700" opacity="0.9"/>
+    <circle cx="14" cy="-6" r="1.5" fill="#ffd700" opacity="0.7"/>
+    <circle cx="10" cy="-6" r="1.5" fill="#ffd700" opacity="0.7"/>
+  </g>
+  
+  <!-- Corner decorations -->
+  <circle cx="20" cy="20" r="3" fill="#d4a574" opacity="0.6"/>
+  <circle cx="108" cy="20" r="3" fill="#d4a574" opacity="0.6"/>
+  <circle cx="20" cy="108" r="3" fill="#d4a574" opacity="0.6"/>
+  <circle cx="108" cy="108" r="3" fill="#d4a574" opacity="0.6"/>
+</svg>
