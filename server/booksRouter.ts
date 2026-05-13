@@ -7,6 +7,39 @@ import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
 import { TRPCError } from "@trpc/server";
 
+// Query result cache with TTL
+const queryCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 30000; // 30 seconds
+
+function getCacheKey(userId: number, query: string): string {
+  return `${userId}:${query}`;
+}
+
+function getFromCache<T>(key: string): T | null {
+  const cached = queryCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > CACHE_TTL) {
+    queryCache.delete(key);
+    return null;
+  }
+  return cached.data;
+}
+
+function setInCache(key: string, data: any): void {
+  queryCache.set(key, { data, timestamp: Date.now() });
+}
+
+function invalidateUserCache(userId: number): void {
+  const prefix = `${userId}:`;
+  const keysToDelete: string[] = [];
+  queryCache.forEach((_, key) => {
+    if (key.startsWith(prefix)) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach((key) => queryCache.delete(key));
+}
+
 export const booksRouter = router({
   /**
    * Upload a PDF file and create a book record
@@ -71,6 +104,9 @@ export const booksRouter = router({
             processingStatus: "processing",
           };
         }
+
+        // Invalidate cache when new book is created
+        invalidateUserCache(ctx.user.id);
 
         // Automatically trigger PDF processing in the background
         // Don't await this - let it run asynchronously
@@ -149,8 +185,15 @@ export const booksRouter = router({
    */
   list: protectedProcedure.query(async ({ ctx }) => {
     try {
+      // Check cache first
+      const cacheKey = getCacheKey(ctx.user.id, "books.list");
+      const cached = getFromCache(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
       const userBooks = await getUserBooks(ctx.user.id);
-      return userBooks.map((book) => ({
+      const result = userBooks.map((book) => ({
         id: book.id,
         title: book.title,
         description: book.description,
@@ -159,6 +202,10 @@ export const booksRouter = router({
         processingStatus: book.processingStatus,
         createdAt: book.createdAt,
       }));
+
+      // Store in cache
+      setInCache(cacheKey, result);
+      return result;
     } catch (error) {
       console.error("[Books Router] List error:", error);
       throw new TRPCError({
@@ -175,6 +222,13 @@ export const booksRouter = router({
     .input(z.object({ bookId: z.number() }))
     .query(async ({ input, ctx }) => {
       try {
+        // Check cache first
+        const cacheKey = getCacheKey(ctx.user.id, `books.getDetails.${input.bookId}`);
+        const cached = getFromCache(cacheKey);
+        if (cached) {
+          return cached;
+        }
+
         const book = await getBook(input.bookId);
         if (!book) {
           throw new TRPCError({
@@ -192,7 +246,7 @@ export const booksRouter = router({
 
         const bookPages = await getBookPages(input.bookId);
 
-        return {
+        const result = {
           id: book.id,
           title: book.title,
           description: book.description,
@@ -215,6 +269,10 @@ export const booksRouter = router({
           })),
           createdAt: book.createdAt,
         };
+
+        // Store in cache
+        setInCache(cacheKey, result);
+        return result;
       } catch (error) {
         console.error("[Books Router] Get details error:", error);
         if (error instanceof TRPCError) throw error;

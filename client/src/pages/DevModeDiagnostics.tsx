@@ -40,17 +40,17 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
     );
   }
 
-  const book = bookDetailsQuery.data;
-  const pages = book.pages || [];
+  const book = bookDetailsQuery.data as any;
+  const pages = (book?.pages as any[]) || [];
 
   const stats = useMemo(() => ({
     total: pages.length,
-    pending: pages.filter((p) => p.processingStatus === "pending").length,
-    processing: pages.filter((p) => p.processingStatus === "processing").length,
-    done: pages.filter((p) => p.processingStatus === "done").length,
-    error: pages.filter((p) => p.processingStatus === "error").length,
-    needsRetry: pages.filter((p) => p.processingStatus === "error" && p.retryCount && p.retryCount < (p.maxRetries || 3)).length,
-    totalRetries: pages.reduce((sum, p) => sum + (p.retryCount || 0), 0),
+    pending: pages.filter((p: any) => p.processingStatus === "pending").length,
+    processing: pages.filter((p: any) => p.processingStatus === "processing").length,
+    done: pages.filter((p: any) => p.processingStatus === "done").length,
+    error: pages.filter((p: any) => p.processingStatus === "error").length,
+    needsRetry: pages.filter((p: any) => p.processingStatus === "error" && p.retryCount && p.retryCount < (p.maxRetries || 3)).length,
+    totalRetries: pages.reduce((sum: number, p: any) => sum + (p.retryCount || 0), 0),
   }), [pages]);
 
   return (
@@ -123,7 +123,7 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
         </CardHeader>
         <CardContent>
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {pages.map((page) => (
+            {pages.map((page: any) => (
               <div
                 key={page.id}
                 className="border rounded-lg overflow-hidden hover:shadow-sm transition-shadow"

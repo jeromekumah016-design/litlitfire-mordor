@@ -51,22 +51,22 @@ export default function Books() {
           <Button variant="outline" onClick={() => setSelectedBookId(null)}>
             ← Back to Books
           </Button>
-          <h1 className="text-3xl font-bold">{book.title}</h1>
+          <h1 className="text-3xl font-bold">{(book as any).title}</h1>
         </div>
 
-        {book.description && <p className="text-muted-foreground">{book.description}</p>}
+        {(book as any).description && <p className="text-muted-foreground">{(book as any).description}</p>}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-6">
             <PDFPreviewCarouselOptimized
-              thumbnails={book.pages.map((page) => ({
+              thumbnails={(book as any).pages.map((page: any) => ({
                 pageNumber: page.pageNumber,
                 dataUrl: page.thumbnailUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23f0f0f0' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23999'%3EPage %3C/text%3E%3C/svg%3E",
               }))}
               isLoading={false}
               onPageSelect={() => {}}
             />
-            <DevModeDiagnostics bookId={book.id} />
+            <DevModeDiagnostics bookId={(book as any).id} />
           </div>
 
           <div className="space-y-4">
@@ -77,26 +77,26 @@ export default function Books() {
               <CardContent className="space-y-3">
                 <div>
                   <p className="text-sm text-muted-foreground">Pages</p>
-                  <p className="font-medium">{book.pageCount}</p>
+                  <p className="font-medium">{(book as any).pageCount}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Price</p>
-                  <p className="font-medium">${(book.totalPrice / 100).toFixed(2)}</p>
+                  <p className="font-medium">${((book as any).totalPrice / 100).toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
-                  <p className="font-medium capitalize">{book.processingStatus}</p>
+                  <p className="font-medium capitalize">{(book as any).processingStatus}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Created</p>
                   <p className="font-medium text-sm">
-                    {new Date(book.createdAt).toLocaleDateString()}
+                    {new Date((book as any).createdAt).toLocaleDateString()}
                   </p>
                 </div>
 
-                {book.processingStatus === "pending" && (
+                {(book as any).processingStatus === "pending" && (
                   <Button
-                    onClick={() => handleProcessPdf(book.id)}
+                    onClick={() => handleProcessPdf((book as any).id)}
                     disabled={processPdfMutation.isPending}
                     className="w-full"
                   >
@@ -114,9 +114,9 @@ export default function Books() {
                   </Button>
                 )}
 
-                {book.pages.some((p) => p.generatedImageUrl) && (
+                {(book as any).pages.some((p: any) => p.generatedImageUrl) && (
                   <Button
-                    onClick={() => setLocation(`/gallery/${book.id}`)}
+                    onClick={() => setLocation(`/gallery/${(book as any).id}`)}
                     className="w-full bg-amber-600 hover:bg-amber-700"
                   >
                     <Image className="mr-2 h-4 w-4" />
@@ -135,15 +135,16 @@ export default function Books() {
                   <div className="flex justify-between text-sm">
                     <span>Completed Pages</span>
                     <span className="font-medium">
-                      {book.pages.filter((p) => p.processingStatus === "done").length} /{" "}
-                      {book.pageCount}
+                      {(book as any).pages.filter((p: any) => p.processingStatus === "done").length} /{
+                        " "}
+                      {(book as any).pageCount}
                     </span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-2">
                     <div
                       className="bg-primary h-2 rounded-full transition-all"
                       style={{
-                        width: `${(book.pages.filter((p) => p.processingStatus === "done").length / book.pageCount) * 100}%`,
+                        width: `${((book as any).pages.filter((p: any) => p.processingStatus === "done").length / (book as any).pageCount) * 100}%`,
                       }}
                     />
                   </div>
@@ -202,13 +203,13 @@ export default function Books() {
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : booksQuery.data && booksQuery.data.length > 0 ? (
+        ) : booksQuery.data && Array.isArray(booksQuery.data) && booksQuery.data.length > 0 ? (
           <>
             {/* Book Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {booksQuery.data
                 .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-                .map((book) => (
+                .map((book: any) => (
                   <BookListCard
                     key={book.id}
                     id={book.id}
@@ -227,7 +228,7 @@ export default function Books() {
             </div>
 
             {/* Pagination */}
-            {Math.ceil(booksQuery.data.length / pageSize) > 1 && (
+            {booksQuery.data && Array.isArray(booksQuery.data) && Math.ceil(booksQuery.data.length / pageSize) > 1 && (
               <div className="flex items-center justify-between mt-6 pt-6 border-t">
                 <div className="text-sm text-muted-foreground">
                   Page {currentPage} of {Math.ceil(booksQuery.data.length / pageSize)}
@@ -246,10 +247,10 @@ export default function Books() {
                     size="sm"
                     onClick={() =>
                       setCurrentPage((p) =>
-                        Math.min(Math.ceil(booksQuery.data!.length / pageSize), p + 1)
+                        Math.min(Math.ceil((booksQuery.data as any[]).length / pageSize), p + 1)
                       )
                     }
-                    disabled={currentPage === Math.ceil(booksQuery.data.length / pageSize)}
+                    disabled={currentPage === Math.ceil((booksQuery.data as any[]).length / pageSize)}
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Button>

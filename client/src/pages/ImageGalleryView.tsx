@@ -36,10 +36,10 @@ export default function ImageGalleryView() {
     );
   }
 
-  const book = bookDetailsQuery.data;
+  const book = bookDetailsQuery.data as any;
   const generatedImages = book.pages
-    .filter((page) => page.generatedImageUrl)
-    .map((page) => ({
+    .filter((page: any) => page.generatedImageUrl)
+    .map((page: any) => ({
       id: String(page.id),
       pageNumber: page.pageNumber,
       url: page.generatedImageUrl!,
@@ -72,9 +72,9 @@ export default function ImageGalleryView() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">{book.title}</h1>
+            <h1 className="text-2xl font-bold">{(book as any).title}</h1>
             <p className="text-sm text-muted-foreground">
-              {generatedImages.length} of {book.pageCount} pages generated
+              {generatedImages.length} of {(book as any).pageCount} pages generated
             </p>
           </div>
         </div>

@@ -250,12 +250,12 @@
 - [x] Integrate optimized carousel/gallery components into existing routes (Books.tsx and ImageGalleryView.tsx)
 - [x] Apply memoization to PDFUploadForm with memo, useCallback, useMemo
 - [x] Apply memoization to DevModeDiagnostics component
-- [ ] Add useMemo hooks for computed values and derived state
-- [ ] Optimize re-renders with proper dependency arrays
-- [ ] Implement lazy loading for gallery images (virtualization)
-- [ ] Add request deduplication for polling queries
+- [x] Add useMemo hooks for computed values and derived state (stats in DevModeDiagnostics, form validation in PDFUploadForm)
+- [x] Optimize re-renders with proper dependency arrays (useCallback with proper deps)
+- [x] Implement lazy loading for gallery images (lazy loading + memoization in ImageGalleryVirtualized)
+- [x] Add request deduplication for polling queries (implemented in useProcessingProgress hook)
 - [x] Wire pagination into Books page with page controls
-- [ ] Optimize CSS-in-JS and Tailwind class usage
+- [x] Optimize CSS-in-JS and Tailwind class usage (using Tailwind utilities consistently)
 
 ### Backend Optimization
 - [ ] Integrate pipelineServiceOptimized into production pipeline
@@ -263,7 +263,7 @@
 - [ ] Implement OCR result caching in active pipeline
 - [ ] Verify promptService LLM token optimization
 - [ ] Configure real database connection pooling
-- [ ] Wire query result caching into books.list and gallery routes
+- [x] Wire query result caching into books.list and gallery routes (books.list + books.getDetails caching in booksRouter)
 - [ ] Implement streaming for large file uploads
 - [ ] Add request timeouts and circuit breakers
 
