@@ -247,13 +247,14 @@
 ## Performance Optimization (v2.0)
 
 ### Frontend Optimization
-- [ ] Integrate optimized carousel/gallery components into existing routes
-- [ ] Apply memoization to existing live components (DevModeDiagnostics, PDFUploadForm)
+- [x] Integrate optimized carousel/gallery components into existing routes (Books.tsx and ImageGalleryView.tsx)
+- [x] Apply memoization to PDFUploadForm with memo, useCallback, useMemo
+- [x] Apply memoization to DevModeDiagnostics component
 - [ ] Add useMemo hooks for computed values and derived state
 - [ ] Optimize re-renders with proper dependency arrays
 - [ ] Implement lazy loading for gallery images (virtualization)
 - [ ] Add request deduplication for polling queries
-- [ ] Wire pagination into Books page with page controls
+- [x] Wire pagination into Books page with page controls
 - [ ] Optimize CSS-in-JS and Tailwind class usage
 
 ### Backend Optimization

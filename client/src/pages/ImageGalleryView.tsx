@@ -1,6 +1,6 @@
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import ImageGallery from "@/components/ImageGallery";
+import ImageGalleryVirtualized from "@/components/ImageGalleryVirtualized";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
@@ -40,7 +40,7 @@ export default function ImageGalleryView() {
   const generatedImages = book.pages
     .filter((page) => page.generatedImageUrl)
     .map((page) => ({
-      id: page.id,
+      id: String(page.id),
       pageNumber: page.pageNumber,
       url: page.generatedImageUrl!,
       title: `Page ${page.pageNumber}`,
@@ -83,10 +83,10 @@ export default function ImageGalleryView() {
       {/* Gallery */}
       <div className="flex-1 p-4">
         <div className="max-w-6xl mx-auto h-full">
-          <ImageGallery
+          <ImageGalleryVirtualized
             images={generatedImages}
-            title={`${book.title} - Generated Images`}
-            onClose={() => setLocation("/books")}
+            isLoading={false}
+            onImageSelect={() => {}}
           />
         </div>
       </div>

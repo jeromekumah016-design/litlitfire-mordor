@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 
-export default function PDFUploadForm() {
+const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -54,7 +54,7 @@ export default function PDFUploadForm() {
     },
   });
 
-  const extractPDFMetadata = async (pdfFile: File) => {
+  const extractPDFMetadata = useCallback(async (pdfFile: File) => {
     try {
       const arrayBuffer = await pdfFile.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
@@ -101,9 +101,9 @@ export default function PDFUploadForm() {
         extractedDescription: "",
       };
     }
-  };
+  }, []);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       if (selectedFile.type !== "application/pdf") {
@@ -124,9 +124,9 @@ export default function PDFUploadForm() {
       setDescription(extractedDescription);
       toast.success(`Extracted metadata: "${extractedTitle}"${extractedDescription ? ` - ${extractedDescription}` : ""}`);
     }
-  };
+  }, [extractPDFMetadata]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!file || !title.trim()) {
@@ -167,7 +167,12 @@ export default function PDFUploadForm() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [uploadMutation, file, title, description]);
+
+  const isFormValid = useMemo(
+    () => file && title.trim().length > 0,
+    [file, title]
+  );
 
   return (
     <Card className="w-full max-w-2xl">
@@ -274,7 +279,7 @@ export default function PDFUploadForm() {
           {/* Submit Button */}
           <Button
             type="submit"
-            disabled={!file || !title.trim() || isLoading || isSuccess}
+            disabled={!isFormValid || isLoading || isSuccess}
             className="w-full"
             size="lg"
           >
@@ -296,4 +301,6 @@ export default function PDFUploadForm() {
       </CardContent>
     </Card>
   );
-}
+});
+
+export default PDFUploadFormContent;

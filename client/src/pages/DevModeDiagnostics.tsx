@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo, useMemo, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,9 +9,17 @@ interface DevModeDiagnosticsProps {
   bookId: number;
 }
 
-export default function DevModeDiagnostics({ bookId }: DevModeDiagnosticsProps) {
+const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ bookId }: DevModeDiagnosticsProps) {
   const [expandedPageId, setExpandedPageId] = useState<number | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const handleToggleRefresh = useCallback(() => {
+    setAutoRefresh((prev) => !prev);
+  }, []);
+
+  const handleTogglePage = useCallback((pageId: number) => {
+    setExpandedPageId((prev) => (prev === pageId ? null : pageId));
+  }, []);
 
   const bookDetailsQuery = trpc.books.getDetails.useQuery(
     { bookId },
@@ -35,7 +43,7 @@ export default function DevModeDiagnostics({ bookId }: DevModeDiagnosticsProps) 
   const book = bookDetailsQuery.data;
   const pages = book.pages || [];
 
-  const stats = {
+  const stats = useMemo(() => ({
     total: pages.length,
     pending: pages.filter((p) => p.processingStatus === "pending").length,
     processing: pages.filter((p) => p.processingStatus === "processing").length,
@@ -43,7 +51,7 @@ export default function DevModeDiagnostics({ bookId }: DevModeDiagnosticsProps) 
     error: pages.filter((p) => p.processingStatus === "error").length,
     needsRetry: pages.filter((p) => p.processingStatus === "error" && p.retryCount && p.retryCount < (p.maxRetries || 3)).length,
     totalRetries: pages.reduce((sum, p) => sum + (p.retryCount || 0), 0),
-  };
+  }), [pages]);
 
   return (
     <div className="space-y-4">
@@ -57,7 +65,7 @@ export default function DevModeDiagnostics({ bookId }: DevModeDiagnosticsProps) 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setAutoRefresh(!autoRefresh)}
+              onClick={handleToggleRefresh}
               className="gap-2"
             >
               <RefreshCw className="w-4 h-4" />
@@ -213,4 +221,6 @@ export default function DevModeDiagnostics({ bookId }: DevModeDiagnosticsProps) 
       </Card>
     </div>
   );
-}
+});
+
+export default DevModeDiagnosticsContent;
