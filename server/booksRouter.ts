@@ -181,27 +181,47 @@ export const booksRouter = router({
     }),
 
   /**
-   * Get user's books
+   * Get user's books with pagination
    */
-  list: protectedProcedure.query(async ({ ctx }) => {
+  list: protectedProcedure
+    .input(
+      z.object({
+        page: z.number().int().positive().default(1),
+        pageSize: z.number().int().min(1).max(100).default(10),
+      })
+    )
+    .query(async ({ ctx, input }) => {
     try {
       // Check cache first
-      const cacheKey = getCacheKey(ctx.user.id, "books.list");
+      const cacheKey = getCacheKey(ctx.user.id, `books.list.${input.page}.${input.pageSize}`);
       const cached = getFromCache(cacheKey);
       if (cached) {
         return cached;
       }
 
+      // Calculate offset
+      const offset = (input.page - 1) * input.pageSize;
       const userBooks = await getUserBooks(ctx.user.id);
-      const result = userBooks.map((book) => ({
-        id: book.id,
-        title: book.title,
-        description: book.description,
-        pageCount: book.pageCount,
-        totalPrice: Number(book.totalPrice),
-        processingStatus: book.processingStatus,
-        createdAt: book.createdAt,
-      }));
+      const totalCount = userBooks.length;
+      const paginatedBooks = userBooks.slice(offset, offset + input.pageSize);
+
+      const result = {
+        items: paginatedBooks.map((book) => ({
+          id: book.id,
+          title: book.title,
+          description: book.description,
+          pageCount: book.pageCount,
+          totalPrice: Number(book.totalPrice),
+          processingStatus: book.processingStatus,
+          createdAt: book.createdAt,
+        })),
+        pagination: {
+          page: input.page,
+          pageSize: input.pageSize,
+          totalCount,
+          totalPages: Math.ceil(totalCount / input.pageSize),
+        },
+      };
 
       // Store in cache
       setInCache(cacheKey, result);

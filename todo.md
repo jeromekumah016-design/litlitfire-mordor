@@ -268,13 +268,13 @@
 - [ ] Add request timeouts and circuit breakers
 
 ### Database Optimization
-- [ ] Add composite indexes for common query patterns
-- [ ] Optimize books.list query with pagination
-- [ ] Add query result caching layer
+- [x] Add composite indexes for common query patterns (10 strategic indexes created)
+- [x] Optimize books.list query with pagination (server-side pagination + caching)
+- [x] Add query result caching layer (30s TTL cache implemented)
 - [ ] Implement database connection pooling
-- [ ] Analyze slow queries and add strategic indexes
+- [x] Analyze slow queries and add strategic indexes (userId, createdAt, processingStatus, etc.)
 - [ ] Optimize JOIN operations in complex queries
-- [ ] Add database query monitoring/logging
+- [x] Add database query monitoring/logging (performanceMonitor service)
 
 ### Data Structure Optimization
 - [ ] Use typed arrays for binary data (Uint8Array instead of Buffer where possible)
@@ -293,12 +293,12 @@
 - [ ] Monitor and optimize heap usage
 
 ### Monitoring & Metrics
-- [ ] Add performance monitoring (Core Web Vitals)
-- [ ] Implement APM (Application Performance Monitoring)
-- [ ] Add database query performance logging
+- [x] Add performance monitoring (Core Web Vitals via webVitalsMonitor service)
+- [x] Implement APM (Application Performance Monitoring via performanceMonitor service)
+- [x] Add database query performance logging (performanceMonitor tracks all metrics)
 - [ ] Track memory usage and GC events
-- [ ] Monitor API response times
-- [ ] Add error rate tracking
+- [x] Monitor API response times (performanceMonitor with p95/p99 percentiles)
+- [x] Add error rate tracking (performanceMonitor tracks success/error status)
 
 
 ## Progress Indicator System (v3.0)

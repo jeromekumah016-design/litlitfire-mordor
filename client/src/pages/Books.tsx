@@ -17,7 +17,7 @@ export default function Books() {
   const [, setLocation] = useLocation();
   const pageSize = 10;
 
-  const booksQuery = trpc.books.list.useQuery();
+  const booksQuery = trpc.books.list.useQuery({ page: currentPage, pageSize });
   const bookDetailsQuery = trpc.books.getDetails.useQuery(
     { bookId: selectedBookId! },
     { enabled: !!selectedBookId }
@@ -203,13 +203,11 @@ export default function Books() {
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : booksQuery.data && Array.isArray(booksQuery.data) && booksQuery.data.length > 0 ? (
+        ) : booksQuery.data && (booksQuery.data as any).items && (booksQuery.data as any).items.length > 0 ? (
           <>
             {/* Book Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {booksQuery.data
-                .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-                .map((book: any) => (
+              {(booksQuery.data as any).items.map((book: any) => (
                   <BookListCard
                     key={book.id}
                     id={book.id}
@@ -228,10 +226,10 @@ export default function Books() {
             </div>
 
             {/* Pagination */}
-            {booksQuery.data && Array.isArray(booksQuery.data) && Math.ceil(booksQuery.data.length / pageSize) > 1 && (
+            {(booksQuery.data as any).pagination && (booksQuery.data as any).pagination.totalPages > 1 && (
               <div className="flex items-center justify-between mt-6 pt-6 border-t">
                 <div className="text-sm text-muted-foreground">
-                  Page {currentPage} of {Math.ceil(booksQuery.data.length / pageSize)}
+                  Page {currentPage} of {(booksQuery.data as any).pagination.totalPages}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -247,10 +245,10 @@ export default function Books() {
                     size="sm"
                     onClick={() =>
                       setCurrentPage((p) =>
-                        Math.min(Math.ceil((booksQuery.data as any[]).length / pageSize), p + 1)
+                        Math.min((booksQuery.data as any).pagination.totalPages, p + 1)
                       )
                     }
-                    disabled={currentPage === Math.ceil((booksQuery.data as any[]).length / pageSize)}
+                    disabled={currentPage === (booksQuery.data as any).pagination.totalPages}
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Button>

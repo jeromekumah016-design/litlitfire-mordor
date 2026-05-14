@@ -1,0 +1,9 @@
+{
+  "query": "CREATE INDEX IF NOT EXISTS idx_books_userId_createdAt ON books(userId, createdAt DESC);\nCREATE INDEX IF NOT EXISTS idx_books_id_userId ON books(id, userId);\nCREATE INDEX IF NOT EXISTS idx_pages_bookId_pageNumber ON pages(bookId, pageNumber);\nCREATE INDEX IF NOT EXISTS idx_pages_processingStatus ON pages(processingStatus);\nCREATE INDEX IF NOT EXISTS idx_pages_generatedImageUrl ON pages(generatedImageUrl);\nCREATE INDEX IF NOT EXISTS idx_users_email ON users(email);\nCREATE INDEX IF NOT EXISTS idx_users_openId ON users(openId);\nCREATE INDEX IF NOT EXISTS idx_pages_bookId_status_pageNumber ON pages(bookId, processingStatus, pageNumber);\nCREATE INDEX IF NOT EXISTS idx_books_createdAt ON books(createdAt DESC);\nCREATE INDEX IF NOT EXISTS idx_pages_bookId_id ON pages(bookId, id DESC);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 25wxbLc1qt11VMj.9969a19f9b56 --database ekExVqzU44AWdbtAiFfyD8 --execute CREATE INDEX IF NOT EXISTS idx_books_userId_createdAt ON books(userId, createdAt DESC);\nCREATE INDEX IF NOT EXISTS idx_books_id_userId ON books(id, userId);\nCREATE INDEX IF NOT EXISTS idx_pages_bookId_pageNumber ON pages(bookId, pageNumber);\nCREATE INDEX IF NOT EXISTS idx_pages_processingStatus ON pages(processingStatus);\nCREATE INDEX IF NOT EXISTS idx_pages_generatedImageUrl ON pages(generatedImageUrl);\nCREATE INDEX IF NOT EXISTS idx_users_email ON users(email);\nCREATE INDEX IF NOT EXISTS idx_users_openId ON users(openId);\nCREATE INDEX IF NOT EXISTS idx_pages_bookId_status_pageNumber ON pages(bookId, processingStatus, pageNumber);\nCREATE INDEX IF NOT EXISTS idx_books_createdAt ON books(createdAt DESC);\nCREATE INDEX IF NOT EXISTS idx_pages_bookId_id ON pages(bookId, id DESC);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1712
+}
