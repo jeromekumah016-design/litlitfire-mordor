@@ -265,7 +265,7 @@
 - [ ] Configure real database connection pooling
 - [x] Wire query result caching into books.list and gallery routes (books.list + books.getDetails caching in booksRouter)
 - [ ] Implement streaming for large file uploads
-- [ ] Add request timeouts and circuit breakers
+- [x] Add request timeouts and circuit breakers (resilience.ts: withTimeout, CircuitBreaker, RateLimiter, Bulkhead)
 
 ### Database Optimization
 - [x] Add composite indexes for common query patterns (10 strategic indexes created)
