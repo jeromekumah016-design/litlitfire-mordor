@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Books from "./pages/Books";
 import ImageGalleryView from "./pages/ImageGalleryView";
+import { useWebVitalsInit } from "./hooks/useWebVitalsInit";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -28,6 +29,9 @@ function Router() {
 // - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
 
 function App() {
+  // Initialize Web Vitals monitoring
+  useWebVitalsInit();
+
   return (
     <ErrorBoundary>
       <ThemeProvider

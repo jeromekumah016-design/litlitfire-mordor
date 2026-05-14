@@ -278,9 +278,9 @@
 
 ### Data Structure Optimization
 - [ ] Use typed arrays for binary data (Uint8Array instead of Buffer where possible)
-- [ ] Implement object pooling for frequently created objects
+- [x] Implement object pooling for frequently created objects (ObjectPool class)
 - [ ] Optimize array operations (avoid unnecessary copies)
-- [ ] Use Map/Set instead of objects for lookups
+- [x] Use Map/Set instead of objects for lookups (TTLMap, BoundedSet, CircularBuffer)
 - [ ] Implement efficient pagination cursors
 - [ ] Add memory leak detection and cleanup
 
@@ -295,10 +295,12 @@
 ### Monitoring & Metrics
 - [x] Add performance monitoring (Core Web Vitals via webVitalsMonitor service)
 - [x] Implement APM (Application Performance Monitoring via performanceMonitor service)
-- [x] Add database query performance logging (performanceMonitor tracks all metrics)
+- [x] Add database query performance logging (dbPerformanceWrapper + trackDbOperation)
 - [ ] Track memory usage and GC events
-- [x] Monitor API response times (performanceMonitor with p95/p99 percentiles)
+- [x] Monitor API response times (trpcMiddleware + metricsRouter endpoint)
 - [x] Add error rate tracking (performanceMonitor tracks success/error status)
+- [x] Wire monitoring into live API routes (trpcMiddleware created)
+- [x] Initialize Web Vitals monitoring in App.tsx (useWebVitalsInit hook)
 
 
 ## Progress Indicator System (v3.0)
