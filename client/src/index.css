@@ -43,15 +43,16 @@
 }
 
 :root {
-  --primary: oklch(0.75 0.22 70);
+  /* Mystical Book Aesthetic - Light Mode (rarely used) */
+  --primary: oklch(0.75 0.22 45);
   --primary-foreground: oklch(0.15 0.02 280);
-  --sidebar-primary: oklch(0.75 0.22 70);
+  --sidebar-primary: oklch(0.75 0.22 45);
   --sidebar-primary-foreground: oklch(0.15 0.02 280);
-  --chart-1: oklch(0.75 0.22 70);
-  --chart-2: oklch(0.65 0.18 60);
-  --chart-3: oklch(0.55 0.15 50);
-  --chart-4: oklch(0.45 0.12 40);
-  --chart-5: oklch(0.35 0.1 30);
+  --chart-1: oklch(0.75 0.22 45);
+  --chart-2: oklch(0.65 0.18 40);
+  --chart-3: oklch(0.55 0.15 35);
+  --chart-4: oklch(0.45 0.12 30);
+  --chart-5: oklch(0.35 0.1 25);
   --radius: 0.65rem;
   --background: oklch(0.98 0.001 0);
   --foreground: oklch(0.2 0.01 280);
@@ -59,58 +60,83 @@
   --card-foreground: oklch(0.2 0.01 280);
   --popover: oklch(0.98 0.001 0);
   --popover-foreground: oklch(0.2 0.01 280);
-  --secondary: oklch(0.75 0.22 70);
+  --secondary: oklch(0.75 0.22 45);
   --secondary-foreground: oklch(0.2 0.01 280);
   --muted: oklch(0.85 0.01 0);
   --muted-foreground: oklch(0.45 0.05 280);
-  --accent: oklch(0.75 0.22 70);
+  --accent: oklch(0.75 0.22 45);
   --accent-foreground: oklch(0.15 0.02 280);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.88 0.01 280);
   --input: oklch(0.88 0.01 280);
-  --ring: oklch(0.75 0.22 70);
+  --ring: oklch(0.75 0.22 45);
   --sidebar: oklch(0.98 0.001 0);
   --sidebar-foreground: oklch(0.2 0.01 280);
-  --sidebar-accent: oklch(0.75 0.22 70);
+  --sidebar-accent: oklch(0.75 0.22 45);
   --sidebar-accent-foreground: oklch(0.15 0.02 280);
   --sidebar-border: oklch(0.88 0.01 280);
-  --sidebar-ring: oklch(0.75 0.22 70);
+  --sidebar-ring: oklch(0.75 0.22 45);
 }
 
 .dark {
-  --primary: oklch(0.75 0.22 70);
+  /* Mystical Book Aesthetic - Dark Mode (Primary) */
+  /* Golden/Amber accent: oklch(0.75 0.22 45) */
+  /* Dark navy/charcoal background: oklch(0.08 0.01 260) */
+  /* Mystical purple accents: oklch(0.55 0.18 280) */
+  
+  --primary: oklch(0.75 0.22 45);
   --primary-foreground: oklch(0.15 0.02 280);
-  --sidebar-primary: oklch(0.75 0.22 70);
+  --sidebar-primary: oklch(0.75 0.22 45);
   --sidebar-primary-foreground: oklch(0.15 0.02 280);
-  --background: oklch(0.12 0.01 280);
-  --foreground: oklch(0.88 0.02 70);
-  --card: oklch(0.18 0.015 280);
-  --card-foreground: oklch(0.88 0.02 70);
-  --popover: oklch(0.18 0.015 280);
-  --popover-foreground: oklch(0.88 0.02 70);
-  --secondary: oklch(0.22 0.02 280);
-  --secondary-foreground: oklch(0.78 0.02 70);
+  
+  /* Deep dark background for mystical library feel */
+  --background: oklch(0.08 0.01 260);
+  --foreground: oklch(0.92 0.02 70);
+  
+  /* Card with subtle mystical tint */
+  --card: oklch(0.12 0.02 270);
+  --card-foreground: oklch(0.92 0.02 70);
+  
+  /* Popover styling */
+  --popover: oklch(0.12 0.02 270);
+  --popover-foreground: oklch(0.92 0.02 70);
+  
+  /* Secondary colors */
+  --secondary: oklch(0.18 0.02 280);
+  --secondary-foreground: oklch(0.88 0.02 45);
+  
+  /* Muted colors */
   --muted: oklch(0.25 0.02 280);
-  --muted-foreground: oklch(0.65 0.02 70);
-  --accent: oklch(0.75 0.22 70);
+  --muted-foreground: oklch(0.65 0.02 45);
+  
+  /* Golden accent - primary visual accent */
+  --accent: oklch(0.75 0.22 45);
   --accent-foreground: oklch(0.15 0.02 280);
+  
+  /* Destructive/Error states */
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.75 0.22 70 / 15%);
-  --input: oklch(0.75 0.22 70 / 20%);
-  --ring: oklch(0.75 0.22 70);
-  --chart-1: oklch(0.75 0.22 70);
-  --chart-2: oklch(0.65 0.18 60);
-  --chart-3: oklch(0.55 0.15 50);
-  --chart-4: oklch(0.45 0.12 40);
-  --chart-5: oklch(0.35 0.1 30);
-  --sidebar: oklch(0.18 0.015 280);
-  --sidebar-foreground: oklch(0.88 0.02 70);
-  --sidebar-accent: oklch(0.75 0.22 70);
+  
+  /* Borders with golden tint */
+  --border: oklch(0.75 0.22 45 / 20%);
+  --input: oklch(0.75 0.22 45 / 25%);
+  --ring: oklch(0.75 0.22 45);
+  
+  /* Chart colors */
+  --chart-1: oklch(0.75 0.22 45);
+  --chart-2: oklch(0.65 0.18 40);
+  --chart-3: oklch(0.55 0.15 35);
+  --chart-4: oklch(0.45 0.12 30);
+  --chart-5: oklch(0.35 0.1 25);
+  
+  /* Sidebar styling */
+  --sidebar: oklch(0.12 0.02 270);
+  --sidebar-foreground: oklch(0.92 0.02 70);
+  --sidebar-accent: oklch(0.75 0.22 45);
   --sidebar-accent-foreground: oklch(0.15 0.02 280);
-  --sidebar-border: oklch(0.75 0.22 70 / 15%);
-  --sidebar-ring: oklch(0.75 0.22 70);
+  --sidebar-border: oklch(0.75 0.22 45 / 20%);
+  --sidebar-ring: oklch(0.75 0.22 45);
 }
 
 @layer base {
@@ -160,6 +186,48 @@
     min-width: 0;
   }
 
+  /* Mystical Glow Effects */
+  .glow-golden {
+    @apply shadow-lg;
+    box-shadow: 0 0 20px rgba(191, 144, 0, 0.4), 0 0 40px rgba(191, 144, 0, 0.2);
+  }
+
+  .glow-golden-sm {
+    box-shadow: 0 0 10px rgba(191, 144, 0, 0.3);
+  }
+
+  .glow-text {
+    @apply text-transparent bg-clip-text;
+    background-image: linear-gradient(135deg, oklch(0.75 0.22 45), oklch(0.85 0.18 50));
+    text-shadow: 0 0 20px rgba(191, 144, 0, 0.3);
+  }
+
+  /* Ornate borders */
+  .border-ornate {
+    @apply border-2 border-accent/40;
+    box-shadow: inset 0 0 10px rgba(191, 144, 0, 0.1);
+  }
+
+  .border-ornate-gold {
+    @apply border-2 border-accent;
+    box-shadow: 0 0 15px rgba(191, 144, 0, 0.3), inset 0 0 10px rgba(191, 144, 0, 0.1);
+  }
+
+  /* Mystical card styling */
+  .card-mystical {
+    @apply bg-card border border-accent/20 rounded-lg p-6;
+    box-shadow: 0 0 20px rgba(191, 144, 0, 0.15), inset 0 0 10px rgba(191, 144, 0, 0.05);
+  }
+
+  /* Glowing button */
+  .btn-glow {
+    @apply transition-all duration-300;
+  }
+
+  .btn-glow:hover {
+    box-shadow: 0 0 20px rgba(191, 144, 0, 0.5), 0 0 40px rgba(191, 144, 0, 0.2);
+  }
+
   @media (min-width: 640px) {
     .container {
       padding-left: 1.5rem; /* 24px - tablet padding */
@@ -174,4 +242,45 @@
       max-width: 1280px; /* Standard content width */
     }
   }
+}
+
+/* Mystical animations */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(191, 144, 0, 0.4), 0 0 40px rgba(191, 144, 0, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(191, 144, 0, 0.6), 0 0 60px rgba(191, 144, 0, 0.3);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer 3s infinite;
+  background-size: 1000px 100%;
 }

@@ -394,3 +394,30 @@
 - [x] Add high contrast mode support
 - [x] Add reduced motion support
 - [x] Add text-to-speech for notifications
+
+
+## UI Redesign - Mystical Book Aesthetic
+
+### Design System
+- [ ] Create color palette (dark navy/charcoal, golden/amber, mystical purples, glowing whites)
+- [ ] Define typography (ornate headers, elegant body text)
+- [ ] Create shadow and glow effect system
+- [ ] Design component library with mystical styling
+
+### Homepage Redesign
+- [ ] Create ornate book hero section with glowing effects
+- [ ] Add mystical library background with floating particles
+- [ ] Design feature cards with golden borders and shadows
+- [ ] Add animated glowing text effects
+
+### Component Updates
+- [ ] Update buttons with golden accents and glow effects
+- [ ] Style form inputs with mystical borders
+- [ ] Create ornate card components with shadows
+- [ ] Add glowing badges and status indicators
+
+### Visual Effects
+- [ ] Add particle/sparkle animations
+- [ ] Create page transition effects
+- [ ] Add glow and shadow effects to text
+- [ ] Implement smooth hover animations
