@@ -383,8 +383,8 @@ export async function processBookPipeline(
       }
     }
 
-    // Update book status to completed
-    const finalStatus = failureCount === 0 ? "completed" : "completed";
+    // Update book status to completed or failed
+    const finalStatus = failureCount === 0 ? "completed" : "failed";
     await updateBook(bookId, { processingStatus: finalStatus });
 
     console.log(
