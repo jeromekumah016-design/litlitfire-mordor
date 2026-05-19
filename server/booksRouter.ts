@@ -57,8 +57,26 @@ export const booksRouter = router({
         // Convert base64 to Buffer
         const pdfBuffer = Buffer.from(input.pdfData, "base64");
 
+        // Validate upload size (max 100MB)
+        const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+        if (pdfBuffer.length > MAX_FILE_SIZE) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `PDF file too large. Maximum size is 100MB, got ${(pdfBuffer.length / 1024 / 1024).toFixed(2)}MB`,
+          });
+        }
+
         // Get PDF metadata
         const metadata = await getPDFMetadata(pdfBuffer);
+
+        // Validate page count (max 500 pages)
+        const MAX_PAGES = 500;
+        if (metadata.totalPages > MAX_PAGES) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `PDF has too many pages. Maximum is ${MAX_PAGES} pages, got ${metadata.totalPages}`,
+          });
+        }
 
         // Calculate price based on page count
         const totalPrice = calculatePrice(metadata.totalPages).toString();

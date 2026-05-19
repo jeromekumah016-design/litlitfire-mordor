@@ -170,7 +170,7 @@ export async function getBookPages(bookId: number): Promise<Page[]> {
   const db = await getDb();
   if (!db) return [];
 
-  return db.select().from(pages).where(eq(pages.bookId, bookId));
+  return db.select().from(pages).where(eq(pages.bookId, bookId)).orderBy(pages.pageNumber);
 }
 
 export async function updatePage(pageId: number, updates: Partial<Page>): Promise<void> {

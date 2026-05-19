@@ -33,11 +33,11 @@ export const books = mysqlTable(
   "books",
   {
     id: int("id").autoincrement().primaryKey(),
-    userId: int("userId").notNull(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     pdfFileKey: varchar("pdfFileKey", { length: 255 }).notNull(), // S3 storage key
-    pdfFileUrl: varchar("pdfFileUrl", { length: 512 }).notNull(), // S3 presigned URL or storage path
+    pdfFileUrl: varchar("pdfFileUrl", { length: 1024 }).notNull(), // S3 presigned URL or storage path
     pageCount: int("pageCount").notNull(), // Total pages in PDF
     processingStatus: mysqlEnum("processingStatus", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
     totalPrice: decimal("totalPrice", { precision: 10, scale: 2 }).notNull(), // Calculated based on page count
@@ -60,14 +60,14 @@ export const pages = mysqlTable(
   "pages",
   {
     id: int("id").autoincrement().primaryKey(),
-    bookId: int("bookId").notNull(),
+    bookId: int("bookId").notNull().references(() => books.id, { onDelete: "cascade" }),
     pageNumber: int("pageNumber").notNull(), // 1-indexed page number
     thumbnailFileKey: varchar("thumbnailFileKey", { length: 255 }), // S3 key for thumbnail
-    thumbnailUrl: varchar("thumbnailUrl", { length: 512 }), // S3 URL for thumbnail
+    thumbnailUrl: varchar("thumbnailUrl", { length: 1024 }), // S3 URL for thumbnail
     ocrText: text("ocrText"), // Extracted text from OCR
     generatedPrompt: text("generatedPrompt"), // LLM-generated prompt
     generatedImageFileKey: varchar("generatedImageFileKey", { length: 255 }), // S3 key for generated image
-    generatedImageUrl: varchar("generatedImageUrl", { length: 512 }), // S3 URL for generated image
+    generatedImageUrl: varchar("generatedImageUrl", { length: 1024 }), // S3 URL for generated image
     processingStatus: mysqlEnum("processingStatus", ["pending", "processing", "done", "error"]).default("pending").notNull(),
     errorMessage: text("errorMessage"), // Error details if processing failed
     retryCount: int("retryCount").default(0).notNull(), // Number of retry attempts

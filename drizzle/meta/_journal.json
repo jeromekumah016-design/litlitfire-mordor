@@ -22,6 +22,20 @@
       "when": 1778008029581,
       "tag": "0002_free_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1779159164799,
+      "tag": "0003_deep_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1779159191815,
+      "tag": "0004_sudden_aaron_stack",
+      "breakpoints": true
     }
   ]
 }
