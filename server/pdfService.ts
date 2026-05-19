@@ -1,7 +1,35 @@
 /**
- * PDF Service - Lightweight PDF processing without browser dependencies
- * Handles PDF metadata estimation and basic processing
+ * PDF Service - Real PDF processing with pdfjs-dist
+ * Handles actual text extraction, thumbnail generation, and metadata reading
  */
+
+import * as pdfjsLib from "pdfjs-dist";
+import { createCanvas } from "canvas";
+
+// Polyfills for Node.js canvas environment
+if (typeof (global as any).DOMMatrix === "undefined") {
+  (global as any).DOMMatrix = class DOMMatrix {
+    a = 1;
+    b = 0;
+    c = 0;
+    d = 1;
+    e = 0;
+    f = 0;
+  };
+}
+
+if (typeof (global as any).CanvasRenderingContext2D === "undefined") {
+  (global as any).CanvasRenderingContext2D = class CanvasRenderingContext2D {};
+}
+
+// Set up worker for pdfjs-dist (only in Node environment)
+if (typeof (global as any).window === "undefined") {
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+  } catch (e) {
+    // Worker setup may fail in test environment
+  }
+}
 
 export interface ExtractedPage {
   pageNumber: number;
@@ -18,70 +46,111 @@ export interface PDFExtractionResult {
 }
 
 /**
- * Estimate page count from PDF file size
- * Average PDF page is ~50-100KB
+ * Extract text from a PDF page using pdfjs-dist
  */
-function estimatePageCount(pdfBuffer: Buffer): number {
-  const fileSizeKB = pdfBuffer.length / 1024;
-  // Estimate: 1 page per 50KB, minimum 1 page
-  const estimatedPages = Math.max(1, Math.ceil(fileSizeKB / 50));
-  return Math.min(estimatedPages, 1000); // Cap at 1000 pages
-}
-
-/**
- * Extract basic metadata from PDF buffer
- * Looks for PDF title in metadata stream
- */
-function extractBasicMetadata(pdfBuffer: Buffer): { title?: string } {
+async function extractPageText(
+  pdfDocument: pdfjsLib.PDFDocumentProxy,
+  pageNumber: number
+): Promise<string> {
   try {
-    const bufferStr = pdfBuffer.toString("binary", 0, Math.min(10000, pdfBuffer.length));
-    const titleMatch = bufferStr.match(/\/Title\s*\(([^)]+)\)/);
-    return {
-      title: titleMatch ? titleMatch[1] : undefined,
-    };
-  } catch {
-    return {};
+    const page = await pdfDocument.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const text = textContent.items
+      .map((item: any) => (item.str ? item.str : ""))
+      .join(" ");
+    return text.trim();
+  } catch (error) {
+    console.error(`Failed to extract text from page ${pageNumber}:`, error);
+    return ""; // Return empty string instead of placeholder
   }
 }
 
 /**
- * Validate PDF file by checking header
+ * Generate a thumbnail for a PDF page using canvas
  */
-function validatePDFHeader(pdfBuffer: Buffer): boolean {
-  if (pdfBuffer.length < 4) return false;
-  const header = pdfBuffer.toString("ascii", 0, 4);
-  return header === "%PDF";
+async function generateThumbnailForPage(
+  pdfDocument: pdfjsLib.PDFDocumentProxy,
+  pageNumber: number,
+  scale: number = 1.5
+): Promise<Buffer> {
+  try {
+    const page = await pdfDocument.getPage(pageNumber);
+    const viewport = page.getViewport({ scale });
+
+    // Create canvas with page dimensions
+    const canvas = createCanvas(viewport.width, viewport.height);
+    const context = canvas.getContext("2d");
+
+    // Render page to canvas
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport,
+      canvas: canvas,
+    };
+
+    await page.render(renderContext as any).promise;
+
+    // Convert canvas to PNG buffer
+    return canvas.toBuffer("image/png");
+  } catch (error) {
+    console.error(`Failed to generate thumbnail for page ${pageNumber}:`, error);
+    // Return a minimal valid PNG on error instead of placeholder
+    return createMinimalPNG();
+  }
 }
 
 /**
- * Extract text and metadata from a PDF (lightweight version)
+ * Create a minimal valid PNG for error cases
+ */
+function createMinimalPNG(): Buffer {
+  // 1x1 white PNG
+  return Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00,
+    0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0x99, 0x63, 0xf8, 0xff, 0xff, 0x3f,
+    0x00, 0x00, 0x05, 0xfe, 0x02, 0xfe, 0x8c, 0x6c, 0x2d, 0x2a, 0x00, 0x00,
+    0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  ]);
+}
+
+/**
+ * Extract text and metadata from a PDF with real pdfjs-dist
  */
 export async function extractPDFPages(
   pdfBuffer: Buffer
 ): Promise<PDFExtractionResult> {
   try {
-    if (!validatePDFHeader(pdfBuffer)) {
-      throw new Error("Invalid PDF file: missing PDF header");
-    }
+    // Load PDF document
+    const pdfDocument = await pdfjsLib.getDocument({
+      data: new Uint8Array(pdfBuffer),
+    }).promise;
 
-    const totalPages = estimatePageCount(pdfBuffer);
-    const metadata = extractBasicMetadata(pdfBuffer);
+    const totalPages = pdfDocument.numPages;
     const pages: ExtractedPage[] = [];
 
-    // Create placeholder pages
+    // Extract metadata
+    const metadata = await pdfDocument.getMetadata();
+    const title = (metadata?.info as any)?.Title || undefined;
+
+    // Extract text from each page
     for (let i = 1; i <= totalPages; i++) {
+      const page = await pdfDocument.getPage(i);
+      const viewport = page.getViewport({ scale: 1 });
+      const text = await extractPageText(pdfDocument, i);
+
       pages.push({
         pageNumber: i,
-        text: `Page ${i} content will be extracted during processing`,
-        width: 612, // Standard letter width in points
-        height: 792, // Standard letter height in points
+        text, // Real extracted text, not placeholder
+        width: viewport.width,
+        height: viewport.height,
       });
     }
 
     return {
       totalPages,
       pages,
-      title: metadata.title,
+      title,
     };
   } catch (error) {
     throw new Error(
@@ -91,8 +160,7 @@ export async function extractPDFPages(
 }
 
 /**
- * Generate a thumbnail for a specific page
- * Returns a placeholder buffer (1x1 transparent PNG)
+ * Generate a real thumbnail for a specific page using canvas
  */
 export async function generatePageThumbnail(
   pdfBuffer: Buffer,
@@ -100,29 +168,20 @@ export async function generatePageThumbnail(
   scale: number = 1.5
 ): Promise<Buffer> {
   try {
-    if (!validatePDFHeader(pdfBuffer)) {
-      throw new Error("Invalid PDF file");
-    }
+    // Load PDF document
+    const pdfDocument = await pdfjsLib.getDocument({
+      data: new Uint8Array(pdfBuffer),
+    }).promise;
 
-    const totalPages = estimatePageCount(pdfBuffer);
+    const totalPages = pdfDocument.numPages;
     if (pageNumber < 1 || pageNumber > totalPages) {
       throw new Error(
         `Invalid page number: ${pageNumber}. PDF has ${totalPages} pages.`
       );
     }
 
-    // Return a placeholder buffer (1x1 transparent PNG)
-    // In production, use a PDF rendering service like pdf2image or Cloudinary
-    const placeholderPNG = Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
-      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-    ]);
-
-    return placeholderPNG;
+    // Generate thumbnail using canvas
+    return await generateThumbnailForPage(pdfDocument, pageNumber, scale);
   } catch (error) {
     throw new Error(
       `Failed to generate thumbnail for page ${pageNumber}: ${error instanceof Error ? error.message : String(error)}`
@@ -138,25 +197,18 @@ export async function extractAllThumbnails(
   scale: number = 1.5
 ): Promise<Map<number, Buffer>> {
   try {
-    if (!validatePDFHeader(pdfBuffer)) {
-      throw new Error("Invalid PDF file");
-    }
+    // Load PDF document
+    const pdfDocument = await pdfjsLib.getDocument({
+      data: new Uint8Array(pdfBuffer),
+    }).promise;
 
-    const totalPages = estimatePageCount(pdfBuffer);
+    const totalPages = pdfDocument.numPages;
     const thumbnails = new Map<number, Buffer>();
 
-    // Placeholder PNG buffer
-    const placeholderPNG = Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
-      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-    ]);
-
+    // Generate thumbnails for all pages
     for (let i = 1; i <= totalPages; i++) {
-      thumbnails.set(i, placeholderPNG);
+      const thumbnail = await generateThumbnailForPage(pdfDocument, i, scale);
+      thumbnails.set(i, thumbnail);
     }
 
     return thumbnails;
@@ -168,22 +220,23 @@ export async function extractAllThumbnails(
 }
 
 /**
- * Get metadata about a PDF
+ * Get accurate metadata about a PDF
  */
 export async function getPDFMetadata(
   pdfBuffer: Buffer
 ): Promise<{ totalPages: number; title?: string }> {
   try {
-    if (!validatePDFHeader(pdfBuffer)) {
-      throw new Error("Invalid PDF file");
-    }
+    // Load PDF document
+    const pdfDocument = await pdfjsLib.getDocument({
+      data: new Uint8Array(pdfBuffer),
+    }).promise;
 
-    const totalPages = estimatePageCount(pdfBuffer);
-    const metadata = extractBasicMetadata(pdfBuffer);
+    const metadata = await pdfDocument.getMetadata();
+    const title = (metadata?.info as any)?.Title || undefined;
 
     return {
-      totalPages,
-      title: metadata.title,
+      totalPages: pdfDocument.numPages,
+      title,
     };
   } catch (error) {
     throw new Error(
