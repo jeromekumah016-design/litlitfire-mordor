@@ -67,42 +67,24 @@ export const booksRouter = router({
         const pdfKey = `books/${ctx.user.id}/${Date.now()}-${input.title.replace(/\s+/g, "-")}.pdf`;
         const { url: pdfUrl } = await storagePut(pdfKey, pdfBuffer, "application/pdf");
 
-        // Create book record
-        let book = null;
-        try {
-          book = await createBook({
-            userId: ctx.user.id,
-            title: input.title,
-            description: input.description,
-            pdfFileKey: pdfKey,
-            pdfFileUrl: pdfUrl,
-            pageCount: metadata.totalPages,
-            processingStatus: "pending",
-            totalPrice,
-          });
-        } catch (dbError) {
-          console.error("[Books Router] Database error:", dbError);
-          // Return success with temporary ID if database fails
-          // This allows testing without database setup
-          return {
-            bookId: Math.floor(Math.random() * 1000000),
-            title: input.title,
-            pageCount: metadata.totalPages,
-            totalPrice: Number(totalPrice),
-            processingStatus: "pending",
-          };
-        }
+        // Create book record — if this throws, tRPC will surface a 500 to the client
+        const book = await createBook({
+          userId: ctx.user.id,
+          title: input.title,
+          description: input.description,
+          pdfFileKey: pdfKey,
+          pdfFileUrl: pdfUrl,
+          pageCount: metadata.totalPages,
+          processingStatus: "pending",
+          totalPrice,
+        });
 
+        // Guard against null case explicitly
         if (!book) {
-          console.warn("[Books Router] Book creation returned null");
-          // Return success with temporary ID
-          return {
-            bookId: Math.floor(Math.random() * 1000000),
-            title: input.title,
-            pageCount: metadata.totalPages,
-            totalPrice: Number(totalPrice),
-            processingStatus: "processing",
-          };
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Book record could not be created",
+          });
         }
 
         // Invalidate cache when new book is created
