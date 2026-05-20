@@ -4,16 +4,16 @@ if (typeof process !== 'undefined') {
 }
 
 // Configure pdfjs for test environment - must be done before any tests
-if (typeof global !== 'undefined') {
+(async () => {
   try {
-    const pdfjsLib = require('pdfjs-dist');
-    const version = pdfjsLib.version || '4.0.379';
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.js`;
-    console.log('[vitest] pdfjs worker configured:', pdfjsLib.GlobalWorkerOptions.workerSrc);
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+    console.log('[vitest] pdfjs worker configured (legacy ESM build)');
   } catch (e) {
     console.error('[vitest] Failed to configure pdfjs:', e);
   }
-}
+})();
 
 // Mock DOM globals for pdfjs in Node environment
 if (typeof global !== 'undefined' && !global.DOMMatrix) {
