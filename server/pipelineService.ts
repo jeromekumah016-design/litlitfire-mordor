@@ -348,30 +348,43 @@ export async function processBookPipeline(
   const pageContexts: PageContext[] = [];
 
   try {
+    console.log(`[Pipeline] Starting book ${bookId} processing...`);
+    console.log(`[Pipeline] PDF buffer size: ${pdfBuffer.length} bytes`);
+    
     // Extract PDF pages — cap at MAX_PAGES to keep processing fast and predictable
+    console.log(`[Pipeline] Extracting PDF pages...`);
     const pdfData = await extractPDFPages(pdfBuffer);
+    console.log(`[Pipeline] PDF extraction successful: ${pdfData.totalPages} pages found`);
+    
     const totalPages = Math.min(pdfData.totalPages, MAX_PAGES);
     const ocrTexts = pdfData.pages.slice(0, totalPages).map((p) => p.text);
+    console.log(`[Pipeline] Processing ${totalPages} pages (capped at MAX_PAGES=${MAX_PAGES})`);
 
     console.log(
       `[Pipeline] Starting processing for book ${bookId}: ${totalPages} pages (PDF has ${pdfData.totalPages})`
     );
 
     // Update book status to processing
+    console.log(`[Pipeline] Updating book ${bookId} to processing status...`);
     await updateBook(bookId, { processingStatus: "processing" });
+    console.log(`[Pipeline] Book ${bookId} status updated to processing`);
 
     // Build story context once from the opening pages so every illustration
     // uses the same art style, character descriptions, and setting.
     console.log(`[Pipeline] Building story context from opening pages...`);
     const storyContext = await buildStoryContext(ocrTexts).catch((err) => {
       console.error("[Pipeline] Story context build failed (continuing without it):", err);
+      console.error("[Pipeline] Story context error stack:", err instanceof Error ? err.stack : 'No stack');
       return null;
     });
+    console.log(`[Pipeline] Story context built: ${storyContext ? 'success' : 'failed, continuing without it'}`);
 
     // Process each page sequentially — storyContext is passed to every page
     // so the generated prompts stay visually consistent and in narrative order.
+    console.log(`[Pipeline] Starting sequential page processing loop...`);
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       try {
+        console.log(`[Pipeline] Processing page ${pageNum}/${totalPages}...`);
         await processPagePipelineWithContext(
           bookId,
           pageNum,
@@ -381,9 +394,11 @@ export async function processBookPipeline(
           storyContext,
           onProgress
         );
+        console.log(`[Pipeline] Page ${pageNum} processed successfully`);
         successCount++;
       } catch (error) {
         console.error(`[Pipeline] Failed to process page ${pageNum}:`, error);
+        console.error(`[Pipeline] Page ${pageNum} error stack:`, error instanceof Error ? error.stack : 'No stack');
         failureCount++;
       }
 
@@ -401,11 +416,13 @@ export async function processBookPipeline(
 
     // Update book status to completed or failed
     const finalStatus = failureCount === 0 ? "completed" : "failed";
+    console.log(`[Pipeline] Updating book ${bookId} to final status: ${finalStatus}`);
     await updateBook(bookId, { processingStatus: finalStatus });
 
     console.log(
       `[Pipeline] Completed context-aware processing for book ${bookId}: ${successCount} success, ${failureCount} failed`
     );
+    console.log(`[Pipeline] Final status: ${finalStatus}`);
 
     if (onProgress) {
       onProgress({
@@ -417,12 +434,17 @@ export async function processBookPipeline(
       });
     }
 
+    console.log(`[Pipeline] Processing complete for book ${bookId}. Returning: ${JSON.stringify({ successCount, failureCount })}`);
     return { successCount, failureCount };
   } catch (error) {
     console.error(`[Pipeline] Fatal error processing book ${bookId}:`, error);
+    console.error(`[Pipeline] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+    console.error(`[Pipeline] Error type:`, typeof error);
+    console.error(`[Pipeline] Error JSON:`, JSON.stringify(error, null, 2));
 
     // Update book status to failed
     const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[Pipeline] Updating book ${bookId} to failed status with message: ${errorMessage}`);
     await updateBook(bookId, {
       processingStatus: "failed",
     });

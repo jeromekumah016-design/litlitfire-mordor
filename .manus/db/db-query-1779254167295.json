@@ -1,0 +1,13 @@
+{
+  "query": "SELECT id FROM books LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 25wxbLc1qt11VMj.9969a19f9b56 --database ekExVqzU44AWdbtAiFfyD8 --execute SELECT id FROM books LIMIT 1;",
+  "rows": [
+    {
+      "id": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\n1\n",
+  "stderr": "",
+  "execution_time_ms": 302
+}

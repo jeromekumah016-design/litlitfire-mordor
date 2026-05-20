@@ -1,0 +1,9 @@
+{
+  "query": "SELECT \n  p.id,\n  p.bookId,\n  p.pageNumber,\n  p.processingStatus,\n  p.generatedImageUrl,\n  p.errorMessage,\n  p.updatedAt\nFROM pages p\nORDER BY p.updatedAt DESC\nLIMIT 50;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 25wxbLc1qt11VMj.9969a19f9b56 --database ekExVqzU44AWdbtAiFfyD8 --execute SELECT \n  p.id,\n  p.bookId,\n  p.pageNumber,\n  p.processingStatus,\n  p.generatedImageUrl,\n  p.errorMessage,\n  p.updatedAt\nFROM pages p\nORDER BY p.updatedAt DESC\nLIMIT 50;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 265
+}

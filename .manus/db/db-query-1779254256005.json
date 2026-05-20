@@ -1,0 +1,9 @@
+{
+  "query": "SELECT \n  COUNT(*) as totalPages,\n  processingStatus,\n  SUM(CASE WHEN generatedImageUrl IS NOT NULL THEN 1 ELSE 0 END) as pagesWithImages,\n  SUM(CASE WHEN errorMessage IS NOT NULL THEN 1 ELSE 0 END) as pagesWithErrors\nFROM pages\nGROUP BY processingStatus;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 25wxbLc1qt11VMj.9969a19f9b56 --database ekExVqzU44AWdbtAiFfyD8 --execute SELECT \n  COUNT(*) as totalPages,\n  processingStatus,\n  SUM(CASE WHEN generatedImageUrl IS NOT NULL THEN 1 ELSE 0 END) as pagesWithImages,\n  SUM(CASE WHEN errorMessage IS NOT NULL THEN 1 ELSE 0 END) as pagesWithErrors\nFROM pages\nGROUP BY processingStatus;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 277
+}

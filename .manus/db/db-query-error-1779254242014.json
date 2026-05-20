@@ -1,0 +1,8 @@
+{
+  "query": "SELECT \n  id,\n  title,\n  author,\n  totalPages,\n  processingStatus,\n  createdAt\nFROM books\nORDER BY createdAt DESC\nLIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 25wxbLc1qt11VMj.9969a19f9b56 --database ekExVqzU44AWdbtAiFfyD8 --execute SELECT \n  id,\n  title,\n  author,\n  totalPages,\n  processingStatus,\n  createdAt\nFROM books\nORDER BY createdAt DESC\nLIMIT 10;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'author' in 'field list'"
+  ]
+}
