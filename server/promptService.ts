@@ -15,30 +15,95 @@ export interface PageContext {
 }
 
 /**
- * Global narrative context extracted once from the opening pages of a book.
- * Every page's prompt is generated using this so the art style, characters,
- * and setting stay consistent from page 1 to the last page.
+ * Full narrative map built once from ALL pages before any image is generated.
+ *
+ * Every field here is something that causes visual confusion or inconsistency
+ * if the illustrator doesn't know about it from the start:
+ *
+ * - characters   → who they are and what they look like (Moses ≠ Aaron ≠ Pharaoh)
+ * - factions     → groups that appear as crowds (Israelites vs. Egyptians)
+ * - locations    → named places the story moves through (Egypt → Sinai → Canaan)
+ * - keyObjects   → artifacts with specific appearances (the Ark, the tablets, a ring)
+ * - chronology   → the ordered event list so page 3 can't show what page 10 reveals
+ * - relationships→ who is connected to whom (prevents mix-ups like Moses/Aaron/Pharaoh)
+ * - visualMotifs → recurring symbols that should look the same every time (burning bush, cross)
+ * - tone         → overall emotional register kept consistent (epic, intimate, dark)
+ * - artStyle     → locked painting/illustration style used on every single page
+ * - setting      → world-level environment description
+ * - timePeriod   → era so anachronisms are impossible
+ * - narrativeSummary → plain-English story arc for the LLM to reason about
  */
 export interface StoryContext {
-  /** All named characters with enough visual detail to paint them consistently */
-  characters: Array<{ name: string; description: string }>;
-  /** World / location / environment (e.g. "Ancient Egypt, sandstone temples, the Nile") */
+  characters: Array<{
+    name: string;
+    /** Full visual description: age, hair, skin, clothing, build, distinguishing features */
+    visualDescription: string;
+    /** Their role in the story: protagonist/antagonist/mentor/etc. */
+    role: string;
+    /** e.g. ["brother of Aaron", "son of Amram", "leader of the Israelites"] */
+    relationships: string[];
+  }>;
+  factions: Array<{
+    name: string;
+    /** Visual markers: how to tell this group apart in a crowd — clothing, colors, symbols */
+    visualMarkers: string;
+    alignment: "protagonist" | "antagonist" | "neutral";
+  }>;
+  locations: Array<{
+    name: string;
+    /** What it looks like — architecture, landscape, light quality, color palette */
+    visualDescription: string;
+  }>;
+  keyObjects: Array<{
+    name: string;
+    /** Exact visual description so the object looks the same every time it appears */
+    visualDescription: string;
+    /** Why it matters — helps the LLM know when to include it */
+    significance: string;
+  }>;
+  /**
+   * Ordered list of key events across ALL pages being processed.
+   * Written as "Page N: <event>" so the LLM knows what has already happened
+   * vs. what is yet to come when it generates each page's prompt.
+   */
+  chronology: string[];
+  /**
+   * Recurring visual symbols or motifs that must look identical every time
+   * they appear (e.g. "burning bush: a desert shrub engulfed in golden flame
+   * that does not burn the leaves").
+   */
+  visualMotifs: Array<{ name: string; description: string }>;
+  /**
+   * Important relationships that could cause confusion if ignored
+   * (e.g. "Moses and Aaron are brothers", "Judas is one of the 12 disciples").
+   */
+  relationships: string[];
+  /** Overall emotional register of the story — kept consistent across all pages */
+  tone: string;
+  /** World/environment — the canvas the entire story is painted on */
   setting: string;
-  /** Historical or fictional time period (e.g. "1300 BCE", "Middle Earth") */
+  /** Historical or fictional era — prevents anachronisms */
   timePeriod: string;
   /**
-   * Consistent art style locked in for every page
-   * (e.g. "classical oil painting, warm earth tones, dramatic chiaroscuro lighting")
+   * The ONE art style used for every single page.
+   * Must be specific enough that every illustration looks like it came from
+   * the same artist (e.g. "classical oil painting, Rembrandt lighting,
+   * warm ochre and umber palette, dramatic chiaroscuro").
    */
   artStyle: string;
-  /** 2-3 sentence plain-English summary of the story */
+  /** 2–4 sentence summary of the full narrative arc being illustrated */
   narrativeSummary: string;
 }
 
 /**
- * Make one LLM call to read the opening pages of a book and establish the
- * visual language (art style, characters, setting) that all page illustrations
- * must follow. Returns null on failure — the pipeline continues without it.
+ * Build the full narrative map from ALL pages that will be illustrated.
+ *
+ * Reads every page (truncated to 350 chars each so token cost stays low),
+ * sends them to the LLM in one call, and returns a StoryContext that the
+ * pipeline injects into every subsequent prompt — ensuring visual and
+ * narrative consistency from page 1 to the last.
+ *
+ * Returns null if the call fails; the pipeline continues with degraded quality.
  */
 export async function buildStoryContext(
   pageTexts: string[]
@@ -47,29 +112,39 @@ export async function buildStoryContext(
     const meaningful = pageTexts.filter((t) => t.trim().length > 20);
     if (meaningful.length === 0) return null;
 
-    // Sample the first 5 non-empty pages — enough to understand the story without
-    // burning tokens on the full book
-    const sample = meaningful
-      .slice(0, 5)
-      .map((t, i) => `--- Page ${i + 1} ---\n${t.substring(0, 600)}`)
+    // Include ALL pages (truncated) so we know every character/location/event
+    // that will be illustrated — not just the ones in the first few pages.
+    const fullScan = meaningful
+      .map((t, i) => `--- Page ${i + 1} ---\n${t.substring(0, 350)}`)
       .join("\n\n");
 
     const response = await invokeLLM({
       messages: [
         {
           role: "system",
-          content: `You are an art director for an illustrated book.
-Your job is to read the opening pages of a book and establish a single, locked-in visual style
-that every page illustration must follow so the book looks like one cohesive artwork.
-Focus on: consistent character appearances, a unified art style, and accurate time period.`,
+          content: `You are the lead art director for an illustrated edition of a book.
+Before a single illustration is drawn, you read the ENTIRE text that will be illustrated
+and produce a comprehensive visual bible — a locked-in reference that every artist must follow.
+
+Your visual bible must capture every element that could cause confusion or inconsistency
+if not established upfront:
+• Characters who appear more than once must look identical each time
+• Groups/factions must be visually distinguishable from each other
+• Named locations must have a consistent visual description
+• Important objects must look the same every time they appear
+• The chronological order of events must be respected — an artist drawing page 5
+  must not accidentally depict something that only happens on page 15
+• Relationships (family, allegiance, opposition) must be noted so characters
+  are never placed in the wrong social context
+• The art style must be specific enough that every illustration looks like it came
+  from the same hand`,
         },
         {
           role: "user",
-          content: `Read these opening pages and define the visual language for illustrating the entire book:
+          content: `Read all the following pages — this is the complete text that will be illustrated.
+Produce the full visual bible as JSON.
 
-${sample}
-
-Return the visual context as JSON.`,
+${fullScan}`,
         },
       ],
       response_format: {
@@ -86,36 +161,142 @@ Return the visual context as JSON.`,
                   type: "object",
                   properties: {
                     name: { type: "string" },
-                    description: {
+                    visualDescription: {
                       type: "string",
                       description:
-                        "Physical appearance, clothing, hair, notable features — enough for an artist to paint this character the same way every time",
+                        "Age, hair color/style, skin tone, build, clothing, any distinctive physical features — detailed enough for an artist to paint this character identically on every page they appear",
+                    },
+                    role: {
+                      type: "string",
+                      description: "Their narrative role: protagonist / antagonist / mentor / sidekick / etc.",
+                    },
+                    relationships: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "Relationships to other characters (e.g. 'brother of Aaron', 'disciple of Jesus')",
+                    },
+                  },
+                  required: ["name", "visualDescription", "role", "relationships"],
+                  additionalProperties: false,
+                },
+              },
+              factions: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    visualMarkers: {
+                      type: "string",
+                      description:
+                        "How to tell this group apart in a crowd: clothing colors, symbols, uniforms, cultural markers",
+                    },
+                    alignment: {
+                      type: "string",
+                      enum: ["protagonist", "antagonist", "neutral"],
+                    },
+                  },
+                  required: ["name", "visualMarkers", "alignment"],
+                  additionalProperties: false,
+                },
+              },
+              locations: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    visualDescription: {
+                      type: "string",
+                      description:
+                        "Architecture, landscape, lighting, dominant colors — what this place looks like",
+                    },
+                  },
+                  required: ["name", "visualDescription"],
+                  additionalProperties: false,
+                },
+              },
+              keyObjects: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    visualDescription: {
+                      type: "string",
+                      description: "Exact appearance: shape, material, color, size",
+                    },
+                    significance: { type: "string" },
+                  },
+                  required: ["name", "visualDescription", "significance"],
+                  additionalProperties: false,
+                },
+              },
+              chronology: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Ordered list of key story events, written as 'Page N: <what happens>' so illustrations can respect narrative order",
+              },
+              visualMotifs: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    description: {
+                      type: "string",
+                      description: "Exact visual description so this symbol looks identical every time it appears",
                     },
                   },
                   required: ["name", "description"],
                   additionalProperties: false,
                 },
               },
+              relationships: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Key relationships that must not be confused: family ties, allegiances, oppositions",
+              },
+              tone: {
+                type: "string",
+                description:
+                  "Overall emotional register of the story (e.g. 'epic and reverent', 'dark and gritty', 'whimsical and lighthearted')",
+              },
               setting: {
                 type: "string",
                 description:
-                  "Primary world/location (e.g. 'Ancient Egypt: desert dunes, the Nile River, sandstone temples with hieroglyphics')",
+                  "World-level environment — the canvas the story is painted on (e.g. 'Ancient Egypt: sand dunes, the Nile River, sandstone temples with hieroglyphics and torchlight')",
               },
               timePeriod: {
                 type: "string",
-                description: "Historical or fictional era (e.g. '1300 BCE Egypt', 'Victorian London')",
+                description: "Era — prevents anachronisms (e.g. '1300 BCE', 'Victorian London 1880s', 'A galaxy far, far away')",
               },
               artStyle: {
                 type: "string",
                 description:
-                  "Exact art style to use for EVERY illustration (e.g. 'classical oil painting in the style of Rembrandt, warm ochre and gold tones, dramatic lighting from above')",
+                  "The single art style used for every illustration — must be specific enough that all pages look like one artist made them (e.g. 'classical oil painting in the style of Gustave Doré, dramatic chiaroscuro lighting, warm sepia and gold tones, highly detailed linework')",
               },
               narrativeSummary: {
                 type: "string",
-                description: "2-3 sentence plain-English summary of what happens in these pages",
+                description: "2–4 sentence plain-English arc of everything that happens in the pages being illustrated",
               },
             },
-            required: ["characters", "setting", "timePeriod", "artStyle", "narrativeSummary"],
+            required: [
+              "characters",
+              "factions",
+              "locations",
+              "keyObjects",
+              "chronology",
+              "visualMotifs",
+              "relationships",
+              "tone",
+              "setting",
+              "timePeriod",
+              "artStyle",
+              "narrativeSummary",
+            ],
             additionalProperties: false,
           },
         },
@@ -126,11 +307,14 @@ Return the visual context as JSON.`,
     if (!content) return null;
 
     const contentStr = typeof content === "string" ? content : JSON.stringify(content);
-    const parsed = JSON.parse(contentStr) as StoryContext;
+    const ctx = JSON.parse(contentStr) as StoryContext;
+
     console.log(
-      `[PromptService] Story context: ${parsed.characters.length} characters, style: "${parsed.artStyle.substring(0, 60)}..."`
+      `[PromptService] Visual bible built: ${ctx.characters.length} characters, ` +
+      `${ctx.factions.length} factions, ${ctx.locations.length} locations, ` +
+      `${ctx.keyObjects.length} objects, ${ctx.chronology.length} events`
     );
-    return parsed;
+    return ctx;
   } catch (error) {
     console.error("[PromptService] Failed to build story context:", error);
     return null;
@@ -140,11 +324,9 @@ Return the visual context as JSON.`,
 /**
  * Generate an image generation prompt for a single page.
  *
- * @param ocrText      Extracted text from this page
- * @param pageNumber   1-indexed page number (used for context messages)
- * @param previousContext  Prompts/text from recent preceding pages
- * @param storyContext Global narrative context (characters, style, setting)
- *                     built once for the whole book
+ * Uses the full StoryContext (visual bible) so every element — characters,
+ * factions, locations, objects, motifs — is rendered consistently and in
+ * the correct narrative order.
  */
 export async function generateImagePrompt(
   ocrText: string,
@@ -155,61 +337,135 @@ export async function generateImagePrompt(
   try {
     if (!ocrText || ocrText.trim().length === 0) {
       const style = storyContext?.artStyle ?? "minimalist illustration";
-      return {
-        prompt: `An empty page, ${style}`,
-        style,
-        mood: "calm",
-      };
+      return { prompt: `An empty page, ${style}`, style, mood: "calm" };
     }
 
     const truncatedText = ocrText.substring(0, 500);
 
-    // ── System prompt: lock in story-wide visual style ──────────────────────
-    let systemPrompt = `You are a creative prompt engineer for book illustration.
-Given text from a single book page, write a vivid 1-2 sentence image-generation prompt
-that captures the scene described on that page.`;
+    // ── Build system prompt from the visual bible ──────────────────────────
+    let systemPrompt = `You are an illustrator generating a single image prompt for one page of a book.
+Write a vivid 1-2 sentence description of the scene on this page, suitable for an AI image generator.
+The prompt must include the art style, any characters present (by their exact visual descriptions),
+the location, and the mood.`;
 
     if (storyContext) {
-      const characterList =
+      // Characters
+      const charBlock =
         storyContext.characters.length > 0
           ? storyContext.characters
-              .map((c) => `  • ${c.name}: ${c.description}`)
+              .map((c) => `  • ${c.name} (${c.role}): ${c.visualDescription}`)
               .join("\n")
-          : "  (no named characters identified)";
+          : "  none identified";
+
+      // Factions
+      const factionBlock =
+        storyContext.factions.length > 0
+          ? storyContext.factions
+              .map((f) => `  • ${f.name} [${f.alignment}]: ${f.visualMarkers}`)
+              .join("\n")
+          : "  none identified";
+
+      // Locations
+      const locationBlock =
+        storyContext.locations.length > 0
+          ? storyContext.locations
+              .map((l) => `  • ${l.name}: ${l.visualDescription}`)
+              .join("\n")
+          : "  none identified";
+
+      // Key objects
+      const objectBlock =
+        storyContext.keyObjects.length > 0
+          ? storyContext.keyObjects
+              .map((o) => `  • ${o.name}: ${o.visualDescription}`)
+              .join("\n")
+          : "  none";
+
+      // Visual motifs
+      const motifBlock =
+        storyContext.visualMotifs.length > 0
+          ? storyContext.visualMotifs
+              .map((m) => `  • ${m.name}: ${m.description}`)
+              .join("\n")
+          : "  none";
+
+      // Chronology — show what has already happened before this page
+      const priorEvents = pageNumber
+        ? storyContext.chronology.filter((e) => {
+            const match = e.match(/^Page (\d+):/);
+            return match ? parseInt(match[1], 10) < pageNumber : true;
+          })
+        : [];
+      const chronologyNote =
+        priorEvents.length > 0
+          ? `\nEvents already shown (do NOT depict these as if they haven't happened yet):\n${priorEvents.map((e) => `  - ${e}`).join("\n")}`
+          : "";
+
+      // Relationships
+      const relBlock =
+        storyContext.relationships.length > 0
+          ? storyContext.relationships.map((r) => `  - ${r}`).join("\n")
+          : "  none noted";
 
       systemPrompt += `
 
-══ LOCKED VISUAL STYLE — apply to every single page ══
-Setting:     ${storyContext.setting}
-Time period: ${storyContext.timePeriod}
-Art style:   ${storyContext.artStyle}
-Story:       ${storyContext.narrativeSummary}
+╔══════════════════════════════════════════════════════╗
+║              VISUAL BIBLE — FOLLOW EXACTLY           ║
+╚══════════════════════════════════════════════════════╝
 
-Named characters — use these EXACT descriptions whenever a character appears:
-${characterList}
+ART STYLE (use on every page, no exceptions):
+  ${storyContext.artStyle}
 
-Rules:
-1. ALWAYS use the art style above. Never deviate from it.
-2. If a named character appears, describe them using ONLY the description above.
-3. Keep the setting consistent with the world defined above.
-4. Maintain the chronological order of events — do not skip ahead or go back.`;
+TONE: ${storyContext.tone}
+WORLD SETTING: ${storyContext.setting}
+TIME PERIOD: ${storyContext.timePeriod}
+STORY ARC: ${storyContext.narrativeSummary}
+
+CHARACTERS — use ONLY these descriptions when a character appears:
+${charBlock}
+
+FACTIONS — visual markers to distinguish groups in crowd scenes:
+${factionBlock}
+
+LOCATIONS — what each named place looks like:
+${locationBlock}
+
+KEY OBJECTS — must look identical every time they appear:
+${objectBlock}
+
+RECURRING VISUAL MOTIFS:
+${motifBlock}
+
+RELATIONSHIPS (context to avoid placing characters in wrong social roles):
+${relBlock}
+${chronologyNote}
+
+RULES:
+1. Art style is locked. Never use a different style.
+2. Character appearances are locked. Do not invent new looks.
+3. Factions are visually distinct. Never dress them the same.
+4. Respect the chronology — this is page ${pageNumber ?? "?"} and only events up to this page have occurred.
+5. If a location is named, use its visual description above.
+6. If a key object appears, describe it exactly as above.`;
     } else {
       systemPrompt += `
 
-Maintain visual and thematic consistency with previous pages.
-Preserve character appearances and settings across pages.`;
+Maintain visual consistency with previous pages.
+Preserve character appearances and settings throughout.`;
     }
 
-    // ── User message: recent page context + this page's text ────────────────
-    let recentContextBlock = "";
+    // ── Recent pages for local narrative flow ─────────────────────────────
+    let recentBlock = "";
     if (previousContext && previousContext.length > 0) {
       const recent = previousContext.slice(-3);
-      recentContextBlock = `\n\nRecent pages for narrative continuity:\n${recent
-        .map(
-          (ctx) =>
-            `Page ${ctx.pageNumber}: "${ctx.text.substring(0, 120)}..."\nPrompt used: ${ctx.prompt.substring(0, 80)}...`
-        )
-        .join("\n\n")}`;
+      recentBlock =
+        "\n\nRecent pages (for narrative flow — do not repeat the same scene):\n" +
+        recent
+          .map(
+            (ctx) =>
+              `  Page ${ctx.pageNumber}: "${ctx.text.substring(0, 100)}..." → prompt: "${ctx.prompt.substring(0, 80)}..."`
+          )
+          .join("\n");
     }
 
     const response = await invokeLLM({
@@ -217,14 +473,16 @@ Preserve character appearances and settings across pages.`;
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `Generate an image prompt for this book page:
+          content: `Generate the image prompt for this page.
 
-${pageNumber ? `Page ${pageNumber}\n` : ""}Text: "${truncatedText}"${recentContextBlock}
+${pageNumber ? `Page number: ${pageNumber}\n` : ""}Page text:
+"${truncatedText}"
+${recentBlock}
 
-Return JSON with:
-- prompt: the image generation prompt (1-2 sentences, include art style and any characters/setting)
+Return JSON:
+- prompt: 1-2 sentence image generation prompt (include art style, characters by their locked descriptions, location, mood)
 - style: art style used
-- mood: emotional mood of the scene`,
+- mood: emotional mood of this specific scene`,
         },
       ],
       response_format: {
@@ -251,11 +509,7 @@ Return JSON with:
 
     const contentStr = typeof content === "string" ? content : JSON.stringify(content);
     const parsed = JSON.parse(contentStr);
-    return {
-      prompt: parsed.prompt,
-      style: parsed.style,
-      mood: parsed.mood,
-    };
+    return { prompt: parsed.prompt, style: parsed.style, mood: parsed.mood };
   } catch (error) {
     console.error("Error generating image prompt:", error);
     throw new Error(
@@ -265,8 +519,8 @@ Return JSON with:
 }
 
 /**
- * Generate prompts for multiple pages with full context awareness.
- * Builds a story context first, then generates each prompt in order.
+ * Generate prompts for multiple pages — builds the visual bible first,
+ * then generates each prompt in order with full context.
  */
 export async function generateImagePromptsWithContext(
   ocrTexts: string[]
@@ -299,11 +553,7 @@ export async function generateImagePromptsWithContext(
       }
     } catch (error) {
       console.error(`Error generating prompt for page ${i + 1}:`, error);
-      prompts.push({
-        prompt: "A page from a book",
-        style: "illustration",
-        mood: "neutral",
-      });
+      prompts.push({ prompt: "A page from a book", style: "illustration", mood: "neutral" });
     }
   }
 
