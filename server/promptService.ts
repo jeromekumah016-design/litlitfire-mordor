@@ -15,78 +15,216 @@ export interface PageContext {
 }
 
 /**
- * Generate an image generation prompt from OCR text with context awareness
- * Uses LLM to create a creative, visual description suitable for image generation
- * Considers previous pages for narrative continuity and visual consistency
+ * Global narrative context extracted once from the opening pages of a book.
+ * Every page's prompt is generated using this so the art style, characters,
+ * and setting stay consistent from page 1 to the last page.
  */
-export async function generateImagePrompt(
-  ocrText: string,
-  pageNumber?: number,
-  previousContext?: PageContext[]
-): Promise<GeneratedPrompt> {
+export interface StoryContext {
+  /** All named characters with enough visual detail to paint them consistently */
+  characters: Array<{ name: string; description: string }>;
+  /** World / location / environment (e.g. "Ancient Egypt, sandstone temples, the Nile") */
+  setting: string;
+  /** Historical or fictional time period (e.g. "1300 BCE", "Middle Earth") */
+  timePeriod: string;
+  /**
+   * Consistent art style locked in for every page
+   * (e.g. "classical oil painting, warm earth tones, dramatic chiaroscuro lighting")
+   */
+  artStyle: string;
+  /** 2-3 sentence plain-English summary of the story */
+  narrativeSummary: string;
+}
+
+/**
+ * Make one LLM call to read the opening pages of a book and establish the
+ * visual language (art style, characters, setting) that all page illustrations
+ * must follow. Returns null on failure — the pipeline continues without it.
+ */
+export async function buildStoryContext(
+  pageTexts: string[]
+): Promise<StoryContext | null> {
   try {
-    if (!ocrText || ocrText.trim().length === 0) {
-      return {
-        prompt: "A blank page with minimal content",
-        style: "minimalist",
-        mood: "calm",
-      };
-    }
+    const meaningful = pageTexts.filter((t) => t.trim().length > 20);
+    if (meaningful.length === 0) return null;
 
-    // Truncate text to reasonable length for LLM
-    const truncatedText = ocrText.substring(0, 500);
-
-    // Build context from previous pages if available
-    let contextMessage = "";
-    if (previousContext && previousContext.length > 0) {
-      const recentContext = previousContext.slice(-3); // Use last 3 pages for context
-      contextMessage = `
-
-Context from previous pages:
-${recentContext
-  .map(
-    (ctx) =>
-      `Page ${ctx.pageNumber}: "${ctx.text.substring(0, 150)}..."
-Visual theme: ${ctx.prompt.substring(0, 100)}...${
-        ctx.characters ? `\nCharacters: ${ctx.characters.join(", ")}` : ""
-      }${ctx.setting ? `\nSetting: ${ctx.setting}` : ""}`
-  )
-  .join("\n\n")}`;
-    }
+    // Sample the first 5 non-empty pages — enough to understand the story without
+    // burning tokens on the full book
+    const sample = meaningful
+      .slice(0, 5)
+      .map((t, i) => `--- Page ${i + 1} ---\n${t.substring(0, 600)}`)
+      .join("\n\n");
 
     const response = await invokeLLM({
       messages: [
         {
           role: "system",
-          content: `You are a creative prompt engineer for book illustration specializing in visual narrative consistency.
-Given text from a book page, generate a vivid, visual description that captures the essence and mood of the text.
-The prompt should be suitable for an AI image generator like DALL-E or Midjourney.
-Keep it concise but evocative (1-2 sentences).
-Also identify the style, mood, main characters, and setting in separate fields.
-
-CRITICAL INSTRUCTIONS FOR CONTEXT-AWARE GENERATION:
-- If context from previous pages is provided, maintain visual and thematic consistency
-- Preserve character appearances, names, and descriptions across pages
-- Keep the same artistic style and color palette for visual cohesion
-- Consider the narrative flow and emotional arc of the story
-- Build upon established settings and atmospheres
-- Ensure character interactions and relationships remain consistent
-- Use visual callbacks to previous scenes when appropriate`,
+          content: `You are an art director for an illustrated book.
+Your job is to read the opening pages of a book and establish a single, locked-in visual style
+that every page illustration must follow so the book looks like one cohesive artwork.
+Focus on: consistent character appearances, a unified art style, and accurate time period.`,
         },
         {
           role: "user",
-          content: `Generate an image generation prompt for this book page text:
+          content: `Read these opening pages and define the visual language for illustrating the entire book:
 
-"${truncatedText}"${pageNumber ? `
+${sample}
 
-This is page ${pageNumber}.` : ""}${contextMessage}
+Return the visual context as JSON.`,
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "story_context",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              characters: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    description: {
+                      type: "string",
+                      description:
+                        "Physical appearance, clothing, hair, notable features — enough for an artist to paint this character the same way every time",
+                    },
+                  },
+                  required: ["name", "description"],
+                  additionalProperties: false,
+                },
+              },
+              setting: {
+                type: "string",
+                description:
+                  "Primary world/location (e.g. 'Ancient Egypt: desert dunes, the Nile River, sandstone temples with hieroglyphics')",
+              },
+              timePeriod: {
+                type: "string",
+                description: "Historical or fictional era (e.g. '1300 BCE Egypt', 'Victorian London')",
+              },
+              artStyle: {
+                type: "string",
+                description:
+                  "Exact art style to use for EVERY illustration (e.g. 'classical oil painting in the style of Rembrandt, warm ochre and gold tones, dramatic lighting from above')",
+              },
+              narrativeSummary: {
+                type: "string",
+                description: "2-3 sentence plain-English summary of what happens in these pages",
+              },
+            },
+            required: ["characters", "setting", "timePeriod", "artStyle", "narrativeSummary"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
 
-Return a JSON response with:
-- prompt: The visual description (1-2 sentences)
-- style: Artistic style (e.g., 'oil painting', 'watercolor', 'digital art')
-- mood: Mood/atmosphere (e.g., 'mysterious', 'joyful', 'dark')
-- characters: Array of character names/descriptions mentioned
-- setting: Location/environment description`,
+    const content = response.choices[0]?.message.content;
+    if (!content) return null;
+
+    const contentStr = typeof content === "string" ? content : JSON.stringify(content);
+    const parsed = JSON.parse(contentStr) as StoryContext;
+    console.log(
+      `[PromptService] Story context: ${parsed.characters.length} characters, style: "${parsed.artStyle.substring(0, 60)}..."`
+    );
+    return parsed;
+  } catch (error) {
+    console.error("[PromptService] Failed to build story context:", error);
+    return null;
+  }
+}
+
+/**
+ * Generate an image generation prompt for a single page.
+ *
+ * @param ocrText      Extracted text from this page
+ * @param pageNumber   1-indexed page number (used for context messages)
+ * @param previousContext  Prompts/text from recent preceding pages
+ * @param storyContext Global narrative context (characters, style, setting)
+ *                     built once for the whole book
+ */
+export async function generateImagePrompt(
+  ocrText: string,
+  pageNumber?: number,
+  previousContext?: PageContext[],
+  storyContext?: StoryContext | null
+): Promise<GeneratedPrompt> {
+  try {
+    if (!ocrText || ocrText.trim().length === 0) {
+      const style = storyContext?.artStyle ?? "minimalist illustration";
+      return {
+        prompt: `An empty page, ${style}`,
+        style,
+        mood: "calm",
+      };
+    }
+
+    const truncatedText = ocrText.substring(0, 500);
+
+    // ── System prompt: lock in story-wide visual style ──────────────────────
+    let systemPrompt = `You are a creative prompt engineer for book illustration.
+Given text from a single book page, write a vivid 1-2 sentence image-generation prompt
+that captures the scene described on that page.`;
+
+    if (storyContext) {
+      const characterList =
+        storyContext.characters.length > 0
+          ? storyContext.characters
+              .map((c) => `  • ${c.name}: ${c.description}`)
+              .join("\n")
+          : "  (no named characters identified)";
+
+      systemPrompt += `
+
+══ LOCKED VISUAL STYLE — apply to every single page ══
+Setting:     ${storyContext.setting}
+Time period: ${storyContext.timePeriod}
+Art style:   ${storyContext.artStyle}
+Story:       ${storyContext.narrativeSummary}
+
+Named characters — use these EXACT descriptions whenever a character appears:
+${characterList}
+
+Rules:
+1. ALWAYS use the art style above. Never deviate from it.
+2. If a named character appears, describe them using ONLY the description above.
+3. Keep the setting consistent with the world defined above.
+4. Maintain the chronological order of events — do not skip ahead or go back.`;
+    } else {
+      systemPrompt += `
+
+Maintain visual and thematic consistency with previous pages.
+Preserve character appearances and settings across pages.`;
+    }
+
+    // ── User message: recent page context + this page's text ────────────────
+    let recentContextBlock = "";
+    if (previousContext && previousContext.length > 0) {
+      const recent = previousContext.slice(-3);
+      recentContextBlock = `\n\nRecent pages for narrative continuity:\n${recent
+        .map(
+          (ctx) =>
+            `Page ${ctx.pageNumber}: "${ctx.text.substring(0, 120)}..."\nPrompt used: ${ctx.prompt.substring(0, 80)}...`
+        )
+        .join("\n\n")}`;
+    }
+
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Generate an image prompt for this book page:
+
+${pageNumber ? `Page ${pageNumber}\n` : ""}Text: "${truncatedText}"${recentContextBlock}
+
+Return JSON with:
+- prompt: the image generation prompt (1-2 sentences, include art style and any characters/setting)
+- style: art style used
+- mood: emotional mood of the scene`,
         },
       ],
       response_format: {
@@ -97,34 +235,11 @@ Return a JSON response with:
           schema: {
             type: "object",
             properties: {
-              prompt: {
-                type: "string",
-                description:
-                  "The visual description prompt for image generation (1-2 sentences)",
-              },
-              style: {
-                type: "string",
-                description:
-                  "The artistic style (e.g., 'oil painting', 'watercolor', 'digital art')",
-              },
-              mood: {
-                type: "string",
-                description:
-                  "The mood or atmosphere (e.g., 'mysterious', 'joyful', 'dark')",
-              },
-              characters: {
-                type: "array",
-                items: {
-                  type: "string",
-                },
-                description: "Main characters mentioned in this page",
-              },
-              setting: {
-                type: "string",
-                description: "The location or environment of this page",
-              },
+              prompt: { type: "string" },
+              style: { type: "string" },
+              mood: { type: "string" },
             },
-            required: ["prompt"],
+            required: ["prompt", "style", "mood"],
             additionalProperties: false,
           },
         },
@@ -132,9 +247,7 @@ Return a JSON response with:
     });
 
     const content = response.choices[0]?.message.content;
-    if (!content) {
-      throw new Error("No response from LLM");
-    }
+    if (!content) throw new Error("No response from LLM");
 
     const contentStr = typeof content === "string" ? content : JSON.stringify(content);
     const parsed = JSON.parse(contentStr);
@@ -152,12 +265,13 @@ Return a JSON response with:
 }
 
 /**
- * Generate prompts for multiple pages with full context awareness
- * Builds context progressively as pages are processed
+ * Generate prompts for multiple pages with full context awareness.
+ * Builds a story context first, then generates each prompt in order.
  */
 export async function generateImagePromptsWithContext(
   ocrTexts: string[]
 ): Promise<GeneratedPrompt[]> {
+  const storyContext = await buildStoryContext(ocrTexts);
   const prompts: GeneratedPrompt[] = [];
   const pageContexts: PageContext[] = [];
 
@@ -167,11 +281,11 @@ export async function generateImagePromptsWithContext(
       const prompt = await generateImagePrompt(
         ocrTexts[i],
         pageNumber,
-        pageContexts.length > 0 ? pageContexts : undefined
+        pageContexts.length > 0 ? pageContexts : undefined,
+        storyContext
       );
       prompts.push(prompt);
 
-      // Store context for next pages
       pageContexts.push({
         pageNumber,
         text: ocrTexts[i],
@@ -180,7 +294,6 @@ export async function generateImagePromptsWithContext(
         setting: prompt.mood,
       });
 
-      // Add small delay between requests to avoid rate limiting
       if (i < ocrTexts.length - 1) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
@@ -197,54 +310,24 @@ export async function generateImagePromptsWithContext(
   return prompts;
 }
 
-/**
- * Generate prompts for multiple pages (legacy function for backward compatibility)
- */
+/** @deprecated Use generateImagePromptsWithContext */
 export async function generateImagePrompts(ocrTexts: string[]): Promise<GeneratedPrompt[]> {
   return generateImagePromptsWithContext(ocrTexts);
 }
 
-/**
- * Extract potential character names from text
- * Simple heuristic-based extraction
- */
 function extractCharacters(text: string): string[] {
-  const characters: string[] = [];
-  // Look for capitalized words that might be names
   const namePattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g;
-  const matches = text.match(namePattern) || [];
-
-  // Filter out common words
   const commonWords = new Set([
-    "The",
-    "And",
-    "But",
-    "For",
-    "With",
-    "From",
-    "That",
-    "This",
-    "Which",
-    "When",
-    "Where",
-    "Why",
-    "How",
+    "The", "And", "But", "For", "With", "From", "That", "This",
+    "Which", "When", "Where", "Why", "How",
   ]);
-
-  matches.forEach((match) => {
-    if (!commonWords.has(match) && characters.length < 5) {
-      characters.push(match);
-    }
-  });
-
-  // Remove duplicates
-  const uniqueCharacters: string[] = [];
   const seen = new Set<string>();
-  for (const char of characters) {
-    if (!seen.has(char)) {
-      uniqueCharacters.push(char);
-      seen.add(char);
+  const characters: string[] = [];
+  for (const match of text.match(namePattern) ?? []) {
+    if (!commonWords.has(match) && !seen.has(match) && characters.length < 5) {
+      characters.push(match);
+      seen.add(match);
     }
   }
-  return uniqueCharacters;
+  return characters;
 }
