@@ -24,11 +24,9 @@ if (typeof (global as any).CanvasRenderingContext2D === "undefined") {
 // Import the legacy ESM build for Node.js compatibility
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-// Set up worker - use the local worker file
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/legacy/build/pdf.worker.mjs',
-  import.meta.url
-).href;
+// === CRITICAL: Disable worker completely for server-side usage ===
+// Workers are not needed in Node.js and can cause issues
+pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
 export interface ExtractedPage {
   pageNumber: number;
@@ -90,14 +88,23 @@ export async function extractPDFPages(
     // Load PDF document
     const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-    }).promise;
+      // These options prevent worker-related failures in Node.js
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    } as any).promise;
 
     const totalPages = pdfDocument.numPages;
     const pages: ExtractedPage[] = [];
 
-    // Extract metadata
-    const metadata = await pdfDocument.getMetadata();
-    const title = (metadata?.info as any)?.Title || undefined;
+    // Extract metadata (gracefully handle missing metadata)
+    let title: string | undefined = undefined;
+    try {
+      const metadata = await pdfDocument.getMetadata();
+      title = (metadata?.info as any)?.Title || undefined;
+    } catch {
+      // Some PDFs don't have metadata — this is fine
+    }
 
     // Extract text from each page
     for (let i = 1; i <= totalPages; i++) {
@@ -140,7 +147,11 @@ export async function generatePageThumbnail(
     // Load PDF document
     const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-    }).promise;
+      // These options prevent worker-related failures in Node.js
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    } as any).promise;
 
     const totalPages = pdfDocument.numPages;
     if (pageNumber < 1 || pageNumber > totalPages) {
@@ -170,7 +181,11 @@ export async function extractAllThumbnails(
     // Load PDF document
     const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-    }).promise;
+      // These options prevent worker-related failures in Node.js
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    } as any).promise;
 
     const totalPages = pdfDocument.numPages;
     const thumbnails = new Map<number, Buffer>();
@@ -196,22 +211,26 @@ export async function extractPDFMetadata(pdfBuffer: Buffer) {
   try {
     const loadingTask = pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-      // Disable worker in some environments if needed
-      // useWorkerFetch: false,
-      // isEvalSupported: false,
-    });
+      // These three options prevent worker-related failures
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    } as any);
 
     const pdfDocument = await loadingTask.promise;
 
-    const metadata = await pdfDocument.getMetadata();
-    const pageCount = pdfDocument.numPages;
-    const info = (metadata?.info as any) || {};
+    let metadata: any = {};
+    try {
+      metadata = await pdfDocument.getMetadata();
+    } catch {
+      // Some PDFs don't have metadata — this is fine
+    }
 
     return {
-      title: info.Title || null,
-      author: info.Author || null,
-      subject: info.Subject || null,
-      pageCount,
+      title: metadata?.info?.Title || null,
+      author: metadata?.info?.Author || null,
+      subject: metadata?.info?.Subject || null,
+      pageCount: pdfDocument.numPages,
     };
   } catch (error) {
     console.error("PDF metadata extraction failed:", error);
