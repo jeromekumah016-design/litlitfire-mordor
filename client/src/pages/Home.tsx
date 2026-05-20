@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { Loader2, BookOpen, Wand2, Image } from "lucide-react";
 import { getLoginUrl } from "@/const";
+import LegalFooter from "@/components/LegalFooter";
 
 export default function Home() {
   const { user, loading, isAuthenticated } = useAuth();
@@ -153,8 +154,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Decorative footer gradient */}
-      <div className="relative z-0 h-32 bg-gradient-to-t from-background/80 to-transparent" />
+      <LegalFooter />
     </div>
   );
 }

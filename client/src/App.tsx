@@ -7,17 +7,23 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Books from "./pages/Books";
 import ImageGalleryView from "./pages/ImageGalleryView";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Copyright from "./pages/Copyright";
+import AIDisclaimer from "./pages/AIDisclaimer";
 import { useWebVitalsInit } from "./hooks/useWebVitalsInit";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/books"} component={Books} />
       <Route path={"/gallery/:bookId"} component={ImageGalleryView} />
+      <Route path={"/terms"} component={Terms} />
+      <Route path={"/privacy"} component={Privacy} />
+      <Route path={"/copyright"} component={Copyright} />
+      <Route path={"/ai-disclaimer"} component={AIDisclaimer} />
       <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
       <Route component={NotFound} />
     </Switch>
   );

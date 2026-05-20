@@ -6,6 +6,7 @@ import { Loader2, Upload, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
+import { Link } from "wouter";
 
 const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   const [file, setFile] = useState<File | null>(null);
@@ -14,6 +15,7 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [hasConsent, setHasConsent] = useState(false);
 
   // Reset success animation after 2 seconds
   useEffect(() => {
@@ -167,8 +169,8 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   }, [uploadMutation, file, title, description]);
 
   const isFormValid = useMemo(
-    () => file && title.trim().length > 0,
-    [file, title]
+    () => file && title.trim().length > 0 && hasConsent,
+    [file, title, hasConsent]
   );
 
   return (
@@ -245,6 +247,27 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
                 Auto-filled from PDF metadata (editable)
               </p>
             )}
+          </div>
+
+          {/* Copyright consent */}
+          <div className="flex items-start gap-3 rounded-lg border border-border p-4 bg-muted/30">
+            <input
+              type="checkbox"
+              id="consent"
+              checked={hasConsent}
+              onChange={(e) => setHasConsent(e.target.checked)}
+              disabled={isLoading}
+              className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+            />
+            <label htmlFor="consent" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
+              I confirm that I own this document or have the legal right to upload and process
+              it, and I agree to the{" "}
+              <Link href="/terms" className="underline hover:text-foreground">Terms of Service</Link>,{" "}
+              <Link href="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>, and{" "}
+              <Link href="/ai-disclaimer" className="underline hover:text-foreground">AI Disclaimer</Link>.
+              I understand that AI-generated illustrations may not accurately represent the
+              source material and that copyright protection of AI-generated images is not guaranteed.
+            </label>
           </div>
 
           {/* Progress Bar */}
