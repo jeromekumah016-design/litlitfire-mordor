@@ -189,23 +189,51 @@ export async function extractAllThumbnails(
 }
 
 /**
- * Get accurate metadata about a PDF
+ * Extract comprehensive metadata from a PDF
+ * Includes title, author, subject, and page count
+ */
+export async function extractPDFMetadata(pdfBuffer: Buffer) {
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(pdfBuffer),
+      // Disable worker in some environments if needed
+      // useWorkerFetch: false,
+      // isEvalSupported: false,
+    });
+
+    const pdfDocument = await loadingTask.promise;
+
+    const metadata = await pdfDocument.getMetadata();
+    const pageCount = pdfDocument.numPages;
+    const info = (metadata?.info as any) || {};
+
+    return {
+      title: info.Title || null,
+      author: info.Author || null,
+      subject: info.Subject || null,
+      pageCount,
+    };
+  } catch (error) {
+    console.error("PDF metadata extraction failed:", error);
+    throw new Error(
+      `Failed to get PDF metadata: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+/**
+ * Get accurate metadata about a PDF (legacy function for backward compatibility)
  */
 export async function getPDFMetadata(
   pdfBuffer: Buffer
 ): Promise<{ totalPages: number; title?: string }> {
   try {
-    // Load PDF document
-    const pdfDocument = await pdfjsLib.getDocument({
-      data: new Uint8Array(pdfBuffer),
-    }).promise;
-
-    const metadata = await pdfDocument.getMetadata();
-    const title = (metadata?.info as any)?.Title || undefined;
-
+    const metadata = await extractPDFMetadata(pdfBuffer);
     return {
-      totalPages: pdfDocument.numPages,
-      title,
+      totalPages: metadata.pageCount,
+      title: metadata.title || undefined,
     };
   } catch (error) {
     throw new Error(
