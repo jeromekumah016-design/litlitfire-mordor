@@ -1,7 +1,7 @@
 /**
  * PDF Service - Real PDF processing with pdfjs-dist
  * Handles actual text extraction and metadata reading
- * Uses lazy loading to avoid DOMMatrix errors in Node.js environments
+ * Uses the legacy ESM build for Node.js compatibility
  * Thumbnails are generated client-side to avoid native module dependencies
  */
 
@@ -21,25 +21,14 @@ if (typeof (global as any).CanvasRenderingContext2D === "undefined") {
   (global as any).CanvasRenderingContext2D = class CanvasRenderingContext2D {};
 }
 
-// Lazy-load pdfjs-dist to avoid DOMMatrix errors at module load time
-let pdfjsLib: any = null;
+// Import the legacy ESM build for Node.js compatibility
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-function getPdfjsLib() {
-  if (!pdfjsLib) {
-    // Use require for lazy loading (CommonJS)
-    pdfjsLib = require("pdfjs-dist");
-    
-    // Set up worker for pdfjs-dist (only in Node environment)
-    if (typeof (global as any).window === "undefined") {
-      try {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-      } catch (e) {
-        // Worker setup may fail in test environment
-      }
-    }
-  }
-  return pdfjsLib;
-}
+// Set up worker - use the local worker file
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/legacy/build/pdf.worker.mjs',
+  import.meta.url
+).href;
 
 export interface ExtractedPage {
   pageNumber: number;
@@ -98,10 +87,8 @@ export async function extractPDFPages(
   pdfBuffer: Buffer
 ): Promise<PDFExtractionResult> {
   try {
-    const pdfjs = getPdfjsLib();
-    
     // Load PDF document
-    const pdfDocument = await pdfjs.getDocument({
+    const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
     }).promise;
 
@@ -150,10 +137,8 @@ export async function generatePageThumbnail(
   scale: number = 1.5
 ): Promise<Buffer> {
   try {
-    const pdfjs = getPdfjsLib();
-    
     // Load PDF document
-    const pdfDocument = await pdfjs.getDocument({
+    const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
     }).promise;
 
@@ -182,10 +167,8 @@ export async function extractAllThumbnails(
   scale: number = 1.5
 ): Promise<Map<number, Buffer>> {
   try {
-    const pdfjs = getPdfjsLib();
-    
     // Load PDF document
-    const pdfDocument = await pdfjs.getDocument({
+    const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
     }).promise;
 
@@ -212,10 +195,8 @@ export async function getPDFMetadata(
   pdfBuffer: Buffer
 ): Promise<{ totalPages: number; title?: string }> {
   try {
-    const pdfjs = getPdfjsLib();
-    
     // Load PDF document
-    const pdfDocument = await pdfjs.getDocument({
+    const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
     }).promise;
 
