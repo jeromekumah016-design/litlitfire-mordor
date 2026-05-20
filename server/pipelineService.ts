@@ -3,7 +3,9 @@ import { extractTextFromImage } from "./ocrService";
 import {
   generateImagePrompt,
   generateImagePromptsWithContext,
+  buildStoryContext,
   type PageContext,
+  type StoryContext,
 } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
 import { storagePut } from "./storage";
@@ -76,6 +78,7 @@ async function processPagePipelineWithContext(
   pdfBuffer: Buffer,
   ocrText: string,
   previousContexts: PageContext[],
+  storyContext: StoryContext | null,
   onProgress?: (progress: PipelineProgress) => void
 ): Promise<Page | null> {
   try {
@@ -94,12 +97,13 @@ async function processPagePipelineWithContext(
     // Step 2: Use provided OCR text (already extracted)
     console.log(`[Pipeline] Processing page ${pageNumber}: Using OCR text...`);
 
-    // Step 3: Generate prompt with context awareness
+    // Step 3: Generate prompt — uses locked-in story context for visual consistency
     console.log(`[Pipeline] Processing page ${pageNumber}: Generating context-aware prompt...`);
     const promptResult = await generateImagePrompt(
       ocrText,
       pageNumber,
-      previousContexts
+      previousContexts,
+      storyContext
     );
 
     // Store context for next page
@@ -332,6 +336,8 @@ export async function processPagePipeline(
  * Process all pages of a PDF book through the pipeline with context awareness
  * Each page is processed with knowledge of previous pages for narrative continuity
  */
+const MAX_PAGES = 20;
+
 export async function processBookPipeline(
   bookId: number,
   pdfBuffer: Buffer,
@@ -342,19 +348,28 @@ export async function processBookPipeline(
   const pageContexts: PageContext[] = [];
 
   try {
-    // Extract PDF pages to get total count
+    // Extract PDF pages — cap at MAX_PAGES to keep processing fast and predictable
     const pdfData = await extractPDFPages(pdfBuffer);
-    const totalPages = pdfData.totalPages;
-    const ocrTexts = pdfData.pages.map((p) => p.text);
+    const totalPages = Math.min(pdfData.totalPages, MAX_PAGES);
+    const ocrTexts = pdfData.pages.slice(0, totalPages).map((p) => p.text);
 
     console.log(
-      `[Pipeline] Starting context-aware processing for book ${bookId} with ${totalPages} pages`
+      `[Pipeline] Starting processing for book ${bookId}: ${totalPages} pages (PDF has ${pdfData.totalPages})`
     );
 
     // Update book status to processing
     await updateBook(bookId, { processingStatus: "processing" });
 
-    // Process each page sequentially with context awareness
+    // Build story context once from the opening pages so every illustration
+    // uses the same art style, character descriptions, and setting.
+    console.log(`[Pipeline] Building story context from opening pages...`);
+    const storyContext = await buildStoryContext(ocrTexts).catch((err) => {
+      console.error("[Pipeline] Story context build failed (continuing without it):", err);
+      return null;
+    });
+
+    // Process each page sequentially — storyContext is passed to every page
+    // so the generated prompts stay visually consistent and in narrative order.
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       try {
         await processPagePipelineWithContext(
@@ -363,6 +378,7 @@ export async function processBookPipeline(
           pdfBuffer,
           ocrTexts[pageNum - 1] || "",
           pageContexts,
+          storyContext,
           onProgress
         );
         successCount++;
