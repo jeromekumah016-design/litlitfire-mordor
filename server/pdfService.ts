@@ -88,7 +88,6 @@ export async function extractPDFPages(
     // Load PDF document
     const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-      // These options prevent worker-related failures in Node.js
       useWorkerFetch: false,
       isEvalSupported: false,
       disableFontFace: true,
@@ -147,7 +146,6 @@ export async function generatePageThumbnail(
     // Load PDF document
     const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-      // These options prevent worker-related failures in Node.js
       useWorkerFetch: false,
       isEvalSupported: false,
       disableFontFace: true,
@@ -181,7 +179,6 @@ export async function extractAllThumbnails(
     // Load PDF document
     const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-      // These options prevent worker-related failures in Node.js
       useWorkerFetch: false,
       isEvalSupported: false,
       disableFontFace: true,
@@ -209,15 +206,12 @@ export async function extractAllThumbnails(
  */
 export async function extractPDFMetadata(pdfBuffer: Buffer) {
   try {
-    const loadingTask = pdfjsLib.getDocument({
+    const pdfDocument = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
-      // These three options prevent worker-related failures
       useWorkerFetch: false,
       isEvalSupported: false,
       disableFontFace: true,
-    } as any);
-
-    const pdfDocument = await loadingTask.promise;
+    } as any).promise;
 
     let metadata: any = {};
     try {
