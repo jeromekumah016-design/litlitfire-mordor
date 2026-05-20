@@ -140,17 +140,14 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
+
+      // Chunked encoding avoids the O(n²) string concat that crashes on PDFs > 2MB
+      const CHUNK = 8192;
       let binaryString = "";
-      
-      // Simulate progress during encoding
-      const chunkSize = Math.ceil(uint8Array.length / 10);
-      for (let i = 0; i < uint8Array.length; i++) {
-        binaryString += String.fromCharCode(uint8Array[i]);
-        if (i % chunkSize === 0) {
-          setUploadProgress(10 + Math.floor((i / uint8Array.length) * 40));
-        }
+      for (let i = 0; i < uint8Array.length; i += CHUNK) {
+        binaryString += String.fromCharCode.apply(null, uint8Array.subarray(i, i + CHUNK) as unknown as number[]);
+        setUploadProgress(10 + Math.floor((i / uint8Array.length) * 40));
       }
-      
       const base64Data = btoa(binaryString);
       setUploadProgress(60);
 

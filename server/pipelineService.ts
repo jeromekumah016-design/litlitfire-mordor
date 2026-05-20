@@ -332,6 +332,8 @@ export async function processPagePipeline(
  * Process all pages of a PDF book through the pipeline with context awareness
  * Each page is processed with knowledge of previous pages for narrative continuity
  */
+const MAX_PAGES = 20;
+
 export async function processBookPipeline(
   bookId: number,
   pdfBuffer: Buffer,
@@ -342,13 +344,13 @@ export async function processBookPipeline(
   const pageContexts: PageContext[] = [];
 
   try {
-    // Extract PDF pages to get total count
+    // Extract PDF pages — cap at MAX_PAGES to keep processing fast and predictable
     const pdfData = await extractPDFPages(pdfBuffer);
-    const totalPages = pdfData.totalPages;
-    const ocrTexts = pdfData.pages.map((p) => p.text);
+    const totalPages = Math.min(pdfData.totalPages, MAX_PAGES);
+    const ocrTexts = pdfData.pages.slice(0, totalPages).map((p) => p.text);
 
     console.log(
-      `[Pipeline] Starting context-aware processing for book ${bookId} with ${totalPages} pages`
+      `[Pipeline] Starting processing for book ${bookId}: ${totalPages} pages (PDF has ${pdfData.totalPages})`
     );
 
     // Update book status to processing
