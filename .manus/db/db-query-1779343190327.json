@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE pages ADD COLUMN retryCount INT DEFAULT 0 NOT NULL AFTER errorMessage;\nALTER TABLE pages ADD COLUMN maxRetries INT DEFAULT 3 NOT NULL AFTER retryCount;\nALTER TABLE pages ADD COLUMN lastRetryAt TIMESTAMP NULL AFTER maxRetries;\nALTER TABLE pages ADD COLUMN nextRetryAt TIMESTAMP NULL AFTER lastRetryAt;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 25wxbLc1qt11VMj.9969a19f9b56 --database ekExVqzU44AWdbtAiFfyD8 --execute ALTER TABLE pages ADD COLUMN retryCount INT DEFAULT 0 NOT NULL AFTER errorMessage;\nALTER TABLE pages ADD COLUMN maxRetries INT DEFAULT 3 NOT NULL AFTER retryCount;\nALTER TABLE pages ADD COLUMN lastRetryAt TIMESTAMP NULL AFTER maxRetries;\nALTER TABLE pages ADD COLUMN nextRetryAt TIMESTAMP NULL AFTER lastRetryAt;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 979
+}

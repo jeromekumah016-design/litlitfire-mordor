@@ -24,9 +24,15 @@ if (typeof (global as any).CanvasRenderingContext2D === "undefined") {
 // Import the legacy ESM build for Node.js compatibility
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-// === CRITICAL: Disable worker completely for server-side usage ===
-// Workers are not needed in Node.js and can cause issues
-pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+// === CRITICAL: Configure worker for server-side usage ===
+// Use file:// URL for Node.js ESM loader compatibility
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const workerPath = join(__dirname, '../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerPath;
 
 export interface ExtractedPage {
   pageNumber: number;
