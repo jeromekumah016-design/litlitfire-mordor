@@ -304,6 +304,62 @@ export const booksRouter = router({
     }),
 
   /**
+   * Get processing progress for a book
+   */
+  getProgress: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      try {
+        const book = await getBook(input.bookId);
+        if (!book) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Book not found",
+          });
+        }
+
+        if (book.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have permission to view this book",
+          });
+        }
+
+        const pages = await getBookPages(input.bookId);
+        const totalPages = pages.length;
+        const completedPages = pages.filter((p) => p.processingStatus === "done").length;
+        const failedPages = pages.filter((p) => p.processingStatus === "error").length;
+        const processingPages = pages.filter((p) => p.processingStatus === "processing").length;
+        const pendingPages = pages.filter((p) => p.processingStatus === "pending").length;
+
+        return {
+          bookId: input.bookId,
+          totalPages,
+          completedPages,
+          failedPages,
+          processingPages,
+          pendingPages,
+          progressPercentage: totalPages > 0 ? Math.round((completedPages / totalPages) * 100) : 0,
+          bookStatus: book.processingStatus,
+          pages: pages.map((page) => ({
+            id: page.id,
+            pageNumber: page.pageNumber,
+            processingStatus: page.processingStatus,
+            errorMessage: page.errorMessage,
+            generatedImageUrl: page.generatedImageUrl,
+          })),
+        };
+      } catch (error) {
+        console.error("[Books Router] Get progress error:", error);
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to fetch progress",
+        });
+      }
+    }),
+
+  /**
    * Calculate price for a given page count
    */
   calculatePrice: protectedProcedure

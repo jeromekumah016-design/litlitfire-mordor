@@ -10,6 +10,7 @@ import PDFPreviewCarousel from "./PDFPreviewCarousel";
 import PDFPreviewCarouselOptimized from "@/components/PDFPreviewCarouselOptimized";
 import DevModeDiagnostics from "./DevModeDiagnostics";
 import BookListCard from "@/components/BookListCard";
+import { ProcessingProgress } from "@/components/ProcessingProgress";
 
 export default function Books() {
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
@@ -58,6 +59,9 @@ export default function Books() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-6">
+            {((book as any).processingStatus === "processing" || (book as any).processingStatus === "failed") && (
+              <ProcessingProgress bookId={(book as any).id} autoRefresh={true} refreshInterval={2000} />
+            )}
             <PDFPreviewCarouselOptimized
               thumbnails={(book as any).pages.map((page: any) => ({
                 pageNumber: page.pageNumber,
