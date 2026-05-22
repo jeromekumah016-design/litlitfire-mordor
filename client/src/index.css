@@ -40,103 +40,84 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --font-serif: "Cormorant Garamond", serif;
 }
 
 :root {
-  /* Mystical Book Aesthetic - Light Mode (rarely used) */
-  --primary: oklch(0.75 0.22 45);
-  --primary-foreground: oklch(0.15 0.02 280);
-  --sidebar-primary: oklch(0.75 0.22 45);
-  --sidebar-primary-foreground: oklch(0.15 0.02 280);
-  --chart-1: oklch(0.75 0.22 45);
-  --chart-2: oklch(0.65 0.18 40);
-  --chart-3: oklch(0.55 0.15 35);
-  --chart-4: oklch(0.45 0.12 30);
-  --chart-5: oklch(0.35 0.1 25);
+  /* Mystical Book Aesthetic - Light Mode (Aged Parchment & Forest Green) */
+  --primary: oklch(0.25 0.05 150); /* Deep Forest Green */
+  --primary-foreground: oklch(0.95 0.02 70); /* Parchment Cream */
+  --sidebar-primary: oklch(0.25 0.05 150);
+  --sidebar-primary-foreground: oklch(0.95 0.02 70);
+  
   --radius: 0.65rem;
-  --background: oklch(0.98 0.001 0);
-  --foreground: oklch(0.2 0.01 280);
-  --card: oklch(0.98 0.001 0);
-  --card-foreground: oklch(0.2 0.01 280);
-  --popover: oklch(0.98 0.001 0);
-  --popover-foreground: oklch(0.2 0.01 280);
-  --secondary: oklch(0.75 0.22 45);
-  --secondary-foreground: oklch(0.2 0.01 280);
-  --muted: oklch(0.85 0.01 0);
-  --muted-foreground: oklch(0.45 0.05 280);
-  --accent: oklch(0.75 0.22 45);
-  --accent-foreground: oklch(0.15 0.02 280);
+  --background: oklch(0.95 0.02 70); /* Aged Parchment Cream */
+  --foreground: oklch(0.15 0.02 150); /* Deep Forest Green / Black */
+  
+  --card: oklch(0.93 0.03 75);
+  --card-foreground: oklch(0.15 0.02 150);
+  
+  --popover: oklch(0.95 0.02 70);
+  --popover-foreground: oklch(0.15 0.02 150);
+  
+  --secondary: oklch(0.85 0.05 70);
+  --secondary-foreground: oklch(0.25 0.05 150);
+  
+  --muted: oklch(0.88 0.03 70);
+  --muted-foreground: oklch(0.35 0.05 150);
+  
+  --accent: oklch(0.7 0.15 60); /* Antique Gold */
+  --accent-foreground: oklch(0.15 0.02 150);
+  
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.88 0.01 280);
-  --input: oklch(0.88 0.01 280);
-  --ring: oklch(0.75 0.22 45);
-  --sidebar: oklch(0.98 0.001 0);
-  --sidebar-foreground: oklch(0.2 0.01 280);
-  --sidebar-accent: oklch(0.75 0.22 45);
-  --sidebar-accent-foreground: oklch(0.15 0.02 280);
-  --sidebar-border: oklch(0.88 0.01 280);
-  --sidebar-ring: oklch(0.75 0.22 45);
+  
+  --border: oklch(0.25 0.05 150 / 15%);
+  --input: oklch(0.25 0.05 150 / 10%);
+  --ring: oklch(0.25 0.05 150);
+  
+  --sidebar: oklch(0.95 0.02 70);
+  --sidebar-foreground: oklch(0.15 0.02 150);
+  --sidebar-accent: oklch(0.7 0.15 60);
+  --sidebar-accent-foreground: oklch(0.15 0.02 150);
+  --sidebar-border: oklch(0.25 0.05 150 / 15%);
+  --sidebar-ring: oklch(0.25 0.05 150);
+
+  /* Analysis View Specifics - Sepia & Navy */
+  --analysis-bg: oklch(0.15 0.03 260); /* Deep Navy */
+  --analysis-fg: oklch(0.85 0.05 70); /* Warm Sepia */
+  --analysis-accent: oklch(0.65 0.15 45); /* Copper */
 }
 
 .dark {
-  /* Mystical Book Aesthetic - Dark Mode (Primary) */
-  /* Golden/Amber accent: oklch(0.75 0.22 45) */
-  /* Dark navy/charcoal background: oklch(0.08 0.01 260) */
-  /* Mystical purple accents: oklch(0.55 0.18 280) */
+  /* Mystical Book Aesthetic - Dark Mode (Deep Navy & Sepia/Copper) */
+  --primary: oklch(0.65 0.15 45); /* Copper Accent */
+  --primary-foreground: oklch(0.1 0.02 260);
   
-  --primary: oklch(0.75 0.22 45);
-  --primary-foreground: oklch(0.15 0.02 280);
-  --sidebar-primary: oklch(0.75 0.22 45);
-  --sidebar-primary-foreground: oklch(0.15 0.02 280);
+  --background: oklch(0.08 0.01 260); /* Deep Navy/Charcoal */
+  --foreground: oklch(0.85 0.05 70); /* Warm Sepia */
   
-  /* Deep dark background for mystical library feel */
-  --background: oklch(0.08 0.01 260);
-  --foreground: oklch(0.92 0.02 70);
-  
-  /* Card with subtle mystical tint */
   --card: oklch(0.12 0.02 270);
-  --card-foreground: oklch(0.92 0.02 70);
+  --card-foreground: oklch(0.85 0.05 70);
   
-  /* Popover styling */
   --popover: oklch(0.12 0.02 270);
-  --popover-foreground: oklch(0.92 0.02 70);
+  --popover-foreground: oklch(0.85 0.05 70);
   
-  /* Secondary colors */
   --secondary: oklch(0.18 0.02 280);
-  --secondary-foreground: oklch(0.88 0.02 45);
+  --secondary-foreground: oklch(0.85 0.05 70);
   
-  /* Muted colors */
-  --muted: oklch(0.25 0.02 280);
-  --muted-foreground: oklch(0.65 0.02 45);
+  --muted: oklch(0.2 0.02 260);
+  --muted-foreground: oklch(0.6 0.05 70);
   
-  /* Golden accent - primary visual accent */
-  --accent: oklch(0.75 0.22 45);
-  --accent-foreground: oklch(0.15 0.02 280);
+  --accent: oklch(0.65 0.15 45); /* Copper */
+  --accent-foreground: oklch(0.1 0.02 260);
   
-  /* Destructive/Error states */
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.65 0.15 45 / 20%);
+  --input: oklch(0.65 0.15 45 / 25%);
+  --ring: oklch(0.65 0.15 45);
   
-  /* Borders with golden tint */
-  --border: oklch(0.75 0.22 45 / 20%);
-  --input: oklch(0.75 0.22 45 / 25%);
-  --ring: oklch(0.75 0.22 45);
-  
-  /* Chart colors */
-  --chart-1: oklch(0.75 0.22 45);
-  --chart-2: oklch(0.65 0.18 40);
-  --chart-3: oklch(0.55 0.15 35);
-  --chart-4: oklch(0.45 0.12 30);
-  --chart-5: oklch(0.35 0.1 25);
-  
-  /* Sidebar styling */
   --sidebar: oklch(0.12 0.02 270);
-  --sidebar-foreground: oklch(0.92 0.02 70);
-  --sidebar-accent: oklch(0.75 0.22 45);
-  --sidebar-accent-foreground: oklch(0.15 0.02 280);
-  --sidebar-border: oklch(0.75 0.22 45 / 20%);
-  --sidebar-ring: oklch(0.75 0.22 45);
+  --sidebar-foreground: oklch(0.85 0.05 70);
 }
 
 @layer base {
@@ -284,3 +265,50 @@
   animation: shimmer 3s infinite;
   background-size: 1000px 100%;
 }
+
+  /* Atmospheric Effects */
+  .parchment-texture {
+    background-image: url("https://www.transparenttextures.com/patterns/paper-fibers.png");
+    background-color: var(--background);
+  }
+
+  .ornate-border {
+    position: relative;
+    border: 1px solid var(--accent);
+    padding: 2rem;
+  }
+
+  .ornate-border::before,
+  .ornate-border::after {
+    content: "❧";
+    position: absolute;
+    color: var(--accent);
+    font-size: 1.5rem;
+  }
+
+  .ornate-border::before {
+    top: -0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .ornate-border::after {
+    bottom: -0.75rem;
+    left: 50%;
+    transform: translateX(-50%) rotate(180deg);
+  }
+
+  .marginalia {
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--muted-foreground);
+    border-left: 2px solid var(--accent);
+    padding-left: 1rem;
+    margin-left: -2rem;
+  }
+
+  .literary-heading {
+    font-family: var(--font-serif);
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }

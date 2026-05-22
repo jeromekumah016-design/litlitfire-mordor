@@ -38,8 +38,8 @@ export default function Home() {
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Logo size="md" />
-            <h1 className="text-2xl font-bold glow-text">
-              LiteralLiterature
+            <h1 className="text-2xl literary-heading glow-text">
+              LiteratureAI
             </h1>
           </div>
           {isAuthenticated && (
@@ -51,28 +51,34 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 container mx-auto px-4 py-16 relative z-10">
+      <main className="flex-1 container mx-auto px-4 py-16 relative z-10 parchment-texture">
         {/* Hero Section */}
         <div className="max-w-4xl mx-auto space-y-12">
           {/* Title Section with Ornate Frame */}
-          <div className="text-center space-y-6">
+          <div className="text-center space-y-8">
             <div className="inline-block">
               <div className="relative">
                 {/* Outer glow effect */}
-                <div className="absolute inset-0 bg-gradient-to-r from-accent to-orange-400 rounded-lg blur-xl opacity-40 animate-glow-pulse" />
+                <div className="absolute inset-0 bg-accent/20 rounded-lg blur-2xl opacity-40 animate-glow-pulse" />
                 
                 {/* Ornate frame */}
-                <div className="relative bg-gradient-to-br from-card to-background px-8 py-6 rounded-lg border-ornate-gold">
-                  <h2 className="text-5xl md:text-6xl font-bold glow-text">
-                    Transform Words Into Visions
+                <div className="relative bg-card/80 backdrop-blur-sm px-12 py-10 rounded-lg border-ornate ornate-border">
+                  <h2 className="text-5xl md:text-7xl literary-heading text-primary leading-tight">
+                    Transform Words <br/> Into Visions
                   </h2>
                 </div>
               </div>
             </div>
 
-            <p className="text-lg md:text-xl text-foreground/80 max-w-2xl mx-auto leading-relaxed">
-              Convert your PDF books into breathtaking visual narratives. Watch as each page transforms into AI-generated artwork, creating a seamless digital reading experience.
-            </p>
+            <div className="relative max-w-2xl mx-auto">
+               <p className="text-lg md:text-2xl font-serif italic text-primary/90 leading-relaxed">
+                "Every great book is a world unto itself. We simply provide the lens to see it."
+              </p>
+              <div className="mt-4 h-px w-24 mx-auto bg-accent/50" />
+              <p className="mt-6 text-lg text-foreground/80 leading-relaxed">
+                Convert your PDF books into breathtaking visual narratives. Watch as each page transforms into AI-generated artwork, creating a seamless digital reading experience.
+              </p>
+            </div>
           </div>
 
           {/* CTA Button with Glow */}

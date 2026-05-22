@@ -47,38 +47,66 @@ export default function Books() {
   if (selectedBookId && bookDetailsQuery.data) {
     const book = bookDetailsQuery.data;
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="outline" onClick={() => setSelectedBookId(null)}>
-            ← Back to Books
-          </Button>
-          <h1 className="text-3xl font-bold">{(book as any).title}</h1>
+      <div className="space-y-6 parchment-texture p-6 rounded-xl border border-accent/20">
+        <div className="flex items-center justify-between gap-4 border-b border-accent/20 pb-4">
+          <div className="flex items-center gap-4">
+            <Button variant="outline" onClick={() => setSelectedBookId(null)} className="border-accent/40 text-primary hover:bg-accent/10">
+              ← Return to Library
+            </Button>
+            <h1 className="text-4xl literary-heading text-primary">{(book as any).title}</h1>
+          </div>
+          <div className="flex gap-2">
+             <Button variant="ghost" size="icon" className="text-accent"><Eye className="h-5 w-5" /></Button>
+             <Button variant="ghost" size="icon" className="text-accent"><Image className="h-5 w-5" /></Button>
+          </div>
         </div>
 
         {(book as any).description && <p className="text-muted-foreground">{(book as any).description}</p>}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="lg:col-span-3 space-y-6">
             {((book as any).processingStatus === "processing" || (book as any).processingStatus === "failed") && (
               <ProcessingProgress bookId={(book as any).id} autoRefresh={true} refreshInterval={2000} />
             )}
-            <PDFPreviewCarouselOptimized
-              thumbnails={(book as any).pages.map((page: any) => ({
-                pageNumber: page.pageNumber,
-                dataUrl: page.thumbnailUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23f0f0f0' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23999'%3EPage %3C/text%3E%3C/svg%3E",
-              }))}
-              isLoading={false}
-              onPageSelect={() => {}}
-            />
+            
+            <div className="relative bg-white/50 p-8 rounded-lg shadow-inner border border-accent/10 min-h-[600px] flex flex-col items-center justify-center">
+              <div className="absolute top-4 right-4 flex gap-2">
+                <span className="px-3 py-1 bg-accent/10 text-accent text-xs rounded-full border border-accent/20">AI Analysis Active</span>
+              </div>
+              
+              <PDFPreviewCarouselOptimized
+                thumbnails={(book as any).pages.map((page: any) => ({
+                  pageNumber: page.pageNumber,
+                  dataUrl: page.thumbnailUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23f0f0f0' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23999'%3EPage %3C/text%3E%3C/svg%3E",
+                }))}
+                isLoading={false}
+                onPageSelect={() => {}}
+              />
+
+              <div className="mt-8 w-full grid grid-cols-2 gap-4">
+                <div className="marginalia">
+                  <h4 className="font-bold text-primary mb-1">Atmospheric Note</h4>
+                  <p className="text-sm">The prose here suggests a shift towards gothic romanticism, with heavy emphasis on nature as a sentient force.</p>
+                </div>
+                <div className="p-4 bg-accent/5 border border-accent/20 rounded-md">
+                   <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-2">Literary Devices</h4>
+                   <div className="flex flex-wrap gap-2">
+                      <span className="px-2 py-1 bg-primary/10 text-primary text-[10px] rounded border border-primary/20">Personification</span>
+                      <span className="px-2 py-1 bg-primary/10 text-primary text-[10px] rounded border border-primary/20">Alliteration</span>
+                   </div>
+                </div>
+              </div>
+            </div>
+
             <DevModeDiagnostics bookId={(book as any).id} />
           </div>
 
           <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Book Details</CardTitle>
+            <Card className="bg-card/50 border-accent/20">
+              <CardHeader className="border-b border-accent/10">
+                <CardTitle className="text-lg literary-heading text-primary">Folio Information</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-3 pt-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Pages</p>
                   <p className="font-medium">{(book as any).pageCount}</p>

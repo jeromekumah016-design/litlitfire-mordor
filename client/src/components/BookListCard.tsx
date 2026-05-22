@@ -30,13 +30,13 @@ export const BookListCard = memo(function BookListCard({
   const getStatusColor = () => {
     switch (processingStatus) {
       case "completed":
-        return "bg-green-50 border-green-200";
+        return "bg-card/40 border-accent/20";
       case "processing":
-        return "bg-blue-50 border-blue-200";
+        return "bg-accent/5 border-accent/30";
       case "failed":
-        return "bg-red-50 border-red-200";
+        return "bg-red-50/50 border-red-200/50";
       case "pending":
-        return "bg-yellow-50 border-yellow-200";
+        return "bg-card/40 border-accent/10";
     }
   };
 
@@ -75,8 +75,8 @@ export const BookListCard = memo(function BookListCard({
   return (
     <div
       className={`
-        rounded-lg border p-4 transition-all duration-200
-        hover:shadow-lg hover:scale-105
+        rounded-lg border p-5 transition-all duration-300
+        hover:shadow-xl hover:-translate-y-1 parchment-texture
         ${getStatusColor()}
       `}
     >
@@ -85,11 +85,11 @@ export const BookListCard = memo(function BookListCard({
         <div className="flex items-start gap-3 flex-1">
           <BookOpen className="w-6 h-6 text-amber-600 flex-shrink-0 mt-1" />
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900 truncate">
+            <h3 className="text-xl literary-heading text-primary truncate">
               {title}
             </h3>
             {description && (
-              <p className="text-sm text-gray-600 line-clamp-2 mt-1">
+              <p className="text-sm font-serif italic text-primary/70 line-clamp-2 mt-1">
                 {description}
               </p>
             )}
