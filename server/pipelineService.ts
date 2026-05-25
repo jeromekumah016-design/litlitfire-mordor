@@ -1,5 +1,4 @@
 import { extractPDFPages, generatePageThumbnail } from "./pdfService";
-import { extractTextFromImage } from "./ocrService";
 import {
   generateImagePrompt,
   generateImagePromptsWithContext,
@@ -94,26 +93,17 @@ async function processPagePipelineWithContext(
       "image/png"
     );
 
-    // Step 2: Use provided OCR text (already extracted)
+    // Step 2: Use provided OCR text (already extracted from PDF)
     console.log(`[Pipeline] Processing page ${pageNumber}: Using OCR text...`);
 
     // Step 3: Generate prompt — uses locked-in story context for visual consistency
-    console.log(`[Pipeline] Processing page ${pageNumber}: Generating context-aware prompt...`);
+    console.log(`[Pipeline] Processing page ${pageNumber}: Generating prompt...`);
     const promptResult = await generateImagePrompt(
       ocrText,
       pageNumber,
-      previousContexts,
+      previousContexts.length > 0 ? previousContexts : undefined,
       storyContext
     );
-
-    // Store context for next page
-    previousContexts.push({
-      pageNumber,
-      text: ocrText,
-      prompt: promptResult.prompt,
-      characters: extractCharactersFromText(ocrText),
-      setting: promptResult.mood,
-    });
 
     // Step 4: Generate image
     console.log(`[Pipeline] Processing page ${pageNumber}: Generating image...`);
@@ -126,18 +116,10 @@ async function processPagePipelineWithContext(
       });
 
       if (imageResult.url) {
-        // Download the generated image and upload to storage
-        const response = await fetch(imageResult.url);
-        const arrayBuffer = await response.arrayBuffer();
-        const imageBuffer = Buffer.from(arrayBuffer);
-
-        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`;
-        const uploadResult = await storagePut(
-          generatedImageKey,
-          imageBuffer,
-          "image/png"
-        );
-        generatedImageUrl = uploadResult.url;
+        // generateImage() already uploads to Cloudinary and returns the final URL
+        // No need to fetch and re-upload
+        generatedImageUrl = imageResult.url;
+        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`; // For reference
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -237,7 +219,12 @@ export async function processPagePipeline(
 
     // Step 3: Generate prompt
     console.log(`[Pipeline] Processing page ${pageNumber}: Generating prompt...`);
-    const promptResult = await generateImagePrompt(ocrText, pageNumber);
+    const promptResult = await generateImagePrompt(
+      ocrText,
+      pageNumber,
+      undefined,
+      undefined
+    );
 
     // Step 4: Generate image
     console.log(`[Pipeline] Processing page ${pageNumber}: Generating image...`);
@@ -250,18 +237,10 @@ export async function processPagePipeline(
       });
 
       if (imageResult.url) {
-        // Download the generated image and upload to storage
-        const response = await fetch(imageResult.url);
-        const arrayBuffer = await response.arrayBuffer();
-        const imageBuffer = Buffer.from(arrayBuffer);
-
-        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`;
-        const uploadResult = await storagePut(
-          generatedImageKey,
-          imageBuffer,
-          "image/png"
-        );
-        generatedImageUrl = uploadResult.url;
+        // generateImage() already uploads to Cloudinary and returns the final URL
+        // No need to fetch and re-upload
+        generatedImageUrl = imageResult.url;
+        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`; // For reference
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -463,3 +442,6 @@ export async function processBookPipeline(
     throw error;
   }
 }
+
+// Import OCR service for the legacy processPagePipeline function
+import { extractTextFromImage } from "./ocrService";
