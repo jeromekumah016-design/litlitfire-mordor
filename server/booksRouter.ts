@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
-import { createBook, getUserBooks, getBook, getBookPages, updateBook } from "./db";
+import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage } from "./db";
 import { getPDFMetadata } from "./pdfService";
 import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
@@ -355,6 +355,69 @@ export const booksRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to fetch progress",
+        });
+      }
+    }),
+
+  /**
+   * Retry all failed pages for a book
+   */
+  retryFailedPages: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const book = await getBook(input.bookId);
+        if (!book) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Book not found",
+          });
+        }
+
+        if (book.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have permission to retry this book",
+          });
+        }
+
+        const pages = await getBookPages(input.bookId);
+        const failedPages = pages.filter((p) => p.processingStatus === "error");
+
+        if (failedPages.length === 0) {
+          return {
+            success: true,
+            message: "No failed pages to retry",
+            retriedCount: 0,
+          };
+        }
+
+        // Reset failed pages to pending status so they'll be reprocessed
+        for (const page of failedPages) {
+          await updatePage(page.id, {
+            processingStatus: "pending",
+            errorMessage: null,
+            retryCount: (page.retryCount || 0) + 1,
+          });
+        }
+
+        // Update book status back to processing
+        await updateBook(input.bookId, { processingStatus: "processing" });
+
+        // Invalidate cache
+        invalidateUserCache(ctx.user.id);
+
+        return {
+          success: true,
+          message: `Retrying ${failedPages.length} failed page(s)`,
+          retriedCount: failedPages.length,
+        };
+      } catch (error) {
+        console.error("[Books Router] Retry failed pages error:", error);
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to retry pages",
         });
       }
     }),
