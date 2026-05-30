@@ -1,15 +1,309 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Play, Eye, Image, ChevronLeft, ChevronRight } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, Play, Eye, Image, ChevronLeft, ChevronRight, BookOpen, ArrowLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import PDFUploadForm from "./PDFUploadForm";
-import PDFPreviewCarousel from "./PDFPreviewCarousel";
 import PDFPreviewCarouselOptimized from "@/components/PDFPreviewCarouselOptimized";
 import DevModeDiagnostics from "./DevModeDiagnostics";
 import BookListCard from "@/components/BookListCard";
+import LegalFooter from "@/components/LegalFooter";
+import { Logo } from "@/components/Logo";
+
+const IS_DEV = import.meta.env.DEV;
+
+export default function Books() {
+  const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [, setLocation] = useLocation();
+  const pageSize = 10;
+
+  // Poll every 4 s while any book is still processing
+  const booksQuery = trpc.books.list.useQuery(
+    { page: currentPage, pageSize },
+    {
+      refetchInterval: (data) => {
+        const items = (data as any)?.items ?? [];
+        const anyProcessing = items.some(
+          (b: any) => b.processingStatus === "processing" || b.processingStatus === "pending"
+        );
+        return anyProcessing ? 4000 : false;
+      },
+    }
+  );
+
+  // Poll every 3 s while the selected book is still processing
+  const bookDetailsQuery = trpc.books.getDetails.useQuery(
+    { bookId: selectedBookId! },
+    {
+      enabled: !!selectedBookId,
+      refetchInterval: (data) => {
+        const status = (data as any)?.processingStatus;
+        return status === "processing" || status === "pending" ? 3000 : false;
+      },
+    }
+  );
+
+  const processPdfMutation = trpc.books.processPdf.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Processing started for book ${data.bookId}`);
+      booksQuery.refetch();
+      if (selectedBookId) bookDetailsQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Processing failed: ${error.message}`);
+    },
+  });
+
+  const handleProcessPdf = (bookId: number) => processPdfMutation.mutate({ bookId });
+  const handleViewBook = (bookId: number) => setSelectedBookId(bookId);
+
+  // ── Shared page wrapper with nav header and footer ───────────────────────
+  const PageShell = ({ children }: { children: React.ReactNode }) => (
+    <div className="min-h-screen flex flex-col bg-background">
+      <header className="border-b border-border bg-background/80 backdrop-blur-md sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <Logo size="sm" />
+            <span className="font-bold text-lg glow-text hidden sm:block">LiteralLiterature</span>
+          </a>
+          <span className="text-border">|</span>
+          <span className="text-sm text-muted-foreground">Your Library</span>
+        </div>
+      </header>
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">{children}</main>
+      <LegalFooter />
+    </div>
+  );
+
+  // ── Book detail view ─────────────────────────────────────────────────────
+  if (selectedBookId && bookDetailsQuery.data) {
+    const book = bookDetailsQuery.data as any;
+    const donePages = book.pages.filter((p: any) => p.processingStatus === "done");
+    const hasAnyImages = donePages.some((p: any) => p.generatedImageUrl);
+    const isStillProcessing =
+      book.processingStatus === "processing" || book.processingStatus === "pending";
+    const progressPct = book.pageCount > 0
+      ? Math.round((donePages.length / book.pageCount) * 100)
+      : 0;
+
+    return (
+      <PageShell>
+        <div className="space-y-6">
+          <div className="flex items-center gap-4">
+            <Button variant="outline" size="sm" onClick={() => setSelectedBookId(null)}>
+              <ArrowLeft className="h-4 w-4 mr-1" /> Back to Books
+            </Button>
+            <h1 className="text-2xl font-bold truncate">{book.title}</h1>
+            {isStillProcessing && (
+              <span className="flex items-center gap-1 text-sm text-blue-400">
+                <Loader2 className="h-3 w-3 animate-spin" /> Processing…
+              </span>
+            )}
+          </div>
+
+          {book.description && (
+            <p className="text-muted-foreground">{book.description}</p>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              <PDFPreviewCarouselOptimized
+                thumbnails={book.pages.map((page: any) => ({
+                  pageNumber: page.pageNumber,
+                  dataUrl:
+                    page.generatedImageUrl ||
+                    page.thumbnailUrl ||
+                    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='280'%3E%3Crect fill='%231a1a2e' width='200' height='280'/%3E%3Ctext x='100' y='140' text-anchor='middle' dy='.3em' fill='%23666' font-size='14'%3EPage " +
+                      page.pageNumber +
+                      "%3C/text%3E%3C/svg%3E",
+                }))}
+                isLoading={isStillProcessing && book.pages.length === 0}
+                onPageSelect={() => {}}
+              />
+              {/* Dev diagnostics only visible during local development */}
+              {IS_DEV && <DevModeDiagnostics bookId={book.id} />}
+            </div>
+
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Book Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Pages</p>
+                    <p className="font-medium">{book.pageCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Price</p>
+                    <p className="font-medium">${Number(book.totalPrice).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <p className="font-medium capitalize">{book.processingStatus}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Created</p>
+                    <p className="font-medium text-sm">
+                      {new Date(book.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+
+                  {book.processingStatus === "pending" && (
+                    <Button
+                      onClick={() => handleProcessPdf(book.id)}
+                      disabled={processPdfMutation.isPending}
+                      className="w-full"
+                    >
+                      {processPdfMutation.isPending ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Starting…</>
+                      ) : (
+                        <><Play className="mr-2 h-4 w-4" />Start Processing</>
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Show gallery as soon as any image is ready */}
+                  {hasAnyImages && (
+                    <Button
+                      onClick={() => setLocation(`/gallery/${book.id}`)}
+                      className="w-full bg-amber-600 hover:bg-amber-700"
+                    >
+                      <Image className="mr-2 h-4 w-4" />
+                      {isStillProcessing
+                        ? `View Gallery (${donePages.filter((p: any) => p.generatedImageUrl).length} ready)`
+                        : "View Gallery"}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Processing Progress</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Pages Complete</span>
+                    <span className="font-medium">{donePages.length} / {book.pageCount}</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div
+                      className="bg-primary h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground text-right">{progressPct}%</p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
+
+  // ── Book list view ────────────────────────────────────────────────────────
+  return (
+    <PageShell>
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">Your Library</h1>
+          <p className="text-muted-foreground">Upload a PDF and watch it become an illustrated book</p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2">
+            <PDFUploadForm />
+          </div>
+          <div>
+            <Card>
+              <CardHeader><CardTitle>How It Works</CardTitle></CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div>
+                  <p className="font-medium mb-1">1. Upload PDF</p>
+                  <p className="text-muted-foreground">Select any PDF — up to 20 pages will be illustrated</p>
+                </div>
+                <div>
+                  <p className="font-medium mb-1">2. AI Processing</p>
+                  <p className="text-muted-foreground">Each page is read, a visual prompt is created, and an image is generated</p>
+                </div>
+                <div>
+                  <p className="font-medium mb-1">3. View Gallery</p>
+                  <p className="text-muted-foreground">Images appear as they finish — no need to wait for all pages</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-2xl font-bold mb-1">Your Books</h2>
+            <p className="text-muted-foreground">Click a book to view details and track progress</p>
+          </div>
+
+          {booksQuery.isLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : booksQuery.data && (booksQuery.data as any).items?.length > 0 ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {(booksQuery.data as any).items.map((book: any) => (
+                  <BookListCard
+                    key={book.id}
+                    id={book.id}
+                    title={book.title}
+                    description={book.description ?? undefined}
+                    pageCount={book.pageCount}
+                    processingStatus={book.processingStatus}
+                    createdAt={book.createdAt}
+                    onView={() => handleViewBook(book.id)}
+                    onDelete={() => {
+                      toast.success("Book removed");
+                      booksQuery.refetch();
+                    }}
+                  />
+                ))}
+              </div>
+
+              {(booksQuery.data as any).pagination?.totalPages > 1 && (
+                <div className="flex items-center justify-between mt-6 pt-6 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Page {currentPage} of {(booksQuery.data as any).pagination.totalPages}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}>
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="sm"
+                      onClick={() => setCurrentPage((p) => Math.min((booksQuery.data as any).pagination.totalPages, p + 1))}
+                      disabled={currentPage === (booksQuery.data as any).pagination.totalPages}>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <Card>
+              <CardContent className="py-12 text-center space-y-3">
+                <BookOpen className="h-10 w-10 text-muted-foreground mx-auto" />
+                <p className="text-muted-foreground">No books yet. Upload a PDF above to get started.</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </PageShell>
+  );
+}
 
 export default function Books() {
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
