@@ -17,20 +17,27 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background overflow-hidden">
-      {/* Mystical background with hero image */}
+      {/* Mystical background with library atmosphere */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        {/* Background image with library shelves */}
         <div 
-          className="absolute inset-0 bg-cover bg-center opacity-30"
+          className="absolute inset-0 bg-cover bg-center opacity-25"
           style={{
             backgroundImage: 'url(https://d2xsxph8kpxj0f.cloudfront.net/310519663492677004/ekExVqzU44AWdbtAiFfyD8/hero-library-background-ihJGRzKDArzhZMnG3fDgmf.webp)',
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/20 via-background/50 to-background" />
         
-        {/* Animated mystical particles */}
-        <div className="absolute top-20 left-10 w-72 h-72 bg-accent/5 rounded-full blur-3xl animate-float" />
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/3 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }} />
-        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-accent/3 rounded-full blur-3xl animate-glow-pulse" />
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/60 to-background" />
+        
+        {/* Ambient floating lights - warm golden orbs */}
+        <div className="ambient-light ambient-light-warm" style={{ width: '200px', height: '200px', top: '10%', left: '5%', animationDelay: '0s' }} />
+        <div className="ambient-light ambient-light-warm" style={{ width: '150px', height: '150px', top: '15%', right: '10%', animationDelay: '2s' }} />
+        <div className="ambient-light ambient-light-warm" style={{ width: '180px', height: '180px', bottom: '15%', left: '15%', animationDelay: '4s' }} />
+        
+        {/* Cool accent lights */}
+        <div className="ambient-light ambient-light-cool" style={{ width: '160px', height: '160px', top: '30%', right: '5%', animationDelay: '1s' }} />
+        <div className="ambient-light ambient-light-cool" style={{ width: '140px', height: '140px', bottom: '20%', right: '20%', animationDelay: '3s' }} />
       </div>
 
       {/* Header with Logo */}
@@ -51,59 +58,93 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 container mx-auto px-4 py-16 relative z-10 parchment-texture">
-        {/* Hero Section */}
-        <div className="max-w-4xl mx-auto space-y-12">
-          {/* Title Section with Ornate Frame */}
-          <div className="text-center space-y-8">
-            <div className="inline-block">
-              <div className="relative">
-                {/* Outer glow effect */}
-                <div className="absolute inset-0 bg-accent/20 rounded-lg blur-2xl opacity-40 animate-glow-pulse" />
-                
-                {/* Ornate frame */}
-                <div className="relative bg-card/80 backdrop-blur-sm px-12 py-10 rounded-lg border-ornate ornate-border">
-                  <h2 className="text-5xl md:text-7xl literary-heading text-primary leading-tight">
-                    Transform Words <br/> Into Visions
-                  </h2>
+      <main className="flex-1 container mx-auto px-4 py-12 md:py-20 relative z-10">
+        {/* Hero Section with Grand Book Display */}
+        <div className="max-w-6xl mx-auto space-y-16">
+          {/* Grand Book Display - Central Hero Element */}
+          <div className="flex flex-col lg:flex-row items-center justify-center gap-12 lg:gap-16">
+            {/* Book Display */}
+            <div className="w-full lg:w-1/2 flex justify-center">
+              <div className="book-display w-full max-w-md">
+                <div className="book-display-inner">
+                  <div className="book-cover aspect-[3/4] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 flex flex-col justify-between">
+                    {/* Book spine decoration */}
+                    <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-slate-950 to-slate-900" />
+                    
+                    {/* Book pages inner edge */}
+                    <div className="book-pages" />
+                    
+                    {/* Book content */}
+                    <div className="relative z-10 space-y-8">
+                      {/* Title */}
+                      <div className="space-y-3">
+                        <div className="h-1 w-12 bg-gradient-to-r from-accent to-orange-400 rounded" />
+                        <h2 className="text-3xl md:text-4xl font-serif font-bold text-accent leading-tight">
+                          LITERAL<br/>LITERATURE
+                        </h2>
+                        <div className="h-px w-8 bg-accent/50" />
+                      </div>
+                      
+                      {/* Decorative text */}
+                      <div className="space-y-2 text-sm text-accent/70 font-serif italic">
+                        <p>Transform Words</p>
+                        <p>Into Visions</p>
+                      </div>
+                    </div>
+                    
+                    {/* Bottom decoration */}
+                    <div className="relative z-10 space-y-3">
+                      <div className="h-px w-16 bg-accent/40" />
+                      <p className="text-xs text-accent/60 font-serif">AI-Generated Visual Stories</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="relative max-w-2xl mx-auto">
-               <p className="text-lg md:text-2xl font-serif italic text-primary/90 leading-relaxed">
-                "Every great book is a world unto itself. We simply provide the lens to see it."
-              </p>
-              <div className="mt-4 h-px w-24 mx-auto bg-accent/50" />
-              <p className="mt-6 text-lg text-foreground/80 leading-relaxed">
-                Convert your PDF books into breathtaking visual narratives. Watch as each page transforms into AI-generated artwork, creating a seamless digital reading experience.
-              </p>
+            {/* Text Content */}
+            <div className="w-full lg:w-1/2 space-y-8">
+              <div className="space-y-6">
+                <h2 className="text-4xl md:text-5xl literary-heading text-primary leading-tight">
+                  Transform Words <br/> Into Visions
+                </h2>
+                
+                <p className="text-lg md:text-xl font-serif italic text-primary/90 leading-relaxed">
+                  "Every great book is a world unto itself. We simply provide the lens to see it."
+                </p>
+                
+                <div className="h-px w-24 bg-accent/50" />
+                
+                <p className="text-base md:text-lg text-foreground/80 leading-relaxed">
+                  Convert your PDF books into breathtaking visual narratives. Watch as each page transforms into AI-generated artwork, creating a seamless digital reading experience that brings stories to life.
+                </p>
+              </div>
+
+              {/* CTA Button */}
+              <div className="flex gap-4 pt-4">
+                {isAuthenticated ? (
+                  <Button
+                    asChild
+                    size="lg"
+                    className="btn-glow bg-gradient-to-r from-accent to-orange-400 hover:from-accent/90 hover:to-orange-400/90 text-background font-bold px-8 py-6 text-lg rounded-lg transition-all"
+                  >
+                    <a href="/books">Begin Your Journey</a>
+                  </Button>
+                ) : (
+                  <Button
+                    asChild
+                    size="lg"
+                    className="btn-glow bg-gradient-to-r from-accent to-orange-400 hover:from-accent/90 hover:to-orange-400/90 text-background font-bold px-8 py-6 text-lg rounded-lg transition-all"
+                  >
+                    <a href={getLoginUrl()}>Enter the Library</a>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* CTA Button with Glow */}
-          <div className="flex justify-center">
-            {isAuthenticated ? (
-              <Button
-                asChild
-                size="lg"
-                className="btn-glow bg-gradient-to-r from-accent to-orange-400 hover:from-accent/90 hover:to-orange-400/90 text-background font-bold px-8 py-6 text-lg rounded-lg transition-all"
-              >
-                <a href="/books">Begin Your Journey</a>
-              </Button>
-            ) : (
-              <Button
-                asChild
-                size="lg"
-                className="btn-glow bg-gradient-to-r from-accent to-orange-400 hover:from-accent/90 hover:to-orange-400/90 text-background font-bold px-8 py-6 text-lg rounded-lg transition-all"
-              >
-                <a href={getLoginUrl()}>Enter the Library</a>
-              </Button>
-            )}
-          </div>
-
           {/* Feature Cards with Mystical Styling */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-20">
             {/* Card 1 - Upload PDFs */}
             <div className="group relative">
               <div className="absolute inset-0 bg-gradient-to-r from-accent/30 to-orange-400/30 rounded-lg blur opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
