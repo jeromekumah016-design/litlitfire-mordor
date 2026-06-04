@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import OpenAI from "openai";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -209,14 +210,27 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+// Prefer OpenAI if key present (for book->image prompt generation to work with documented env),
+// fall back to forge/manus for legacy.
+const resolveChatUrl = () => {
+  if (ENV.openAiApiKey) {
+    return "https://api.openai.com/v1/chat/completions";
+  }
+  if (ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0) {
+    return `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`;
+  }
+  return "https://api.openai.com/v1/chat/completions"; // default openai
+};
+
+const getApiKey = () => {
+  if (ENV.openAiApiKey) return ENV.openAiApiKey;
+  if (ENV.forgeApiKey) return ENV.forgeApiKey;
+  return "";
+};
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!ENV.openAiApiKey && !ENV.forgeApiKey) {
+    throw new Error("OPENAI_API_KEY (or BUILT_IN_FORGE_API_KEY) is not configured");
   }
 };
 
@@ -265,6 +279,16 @@ const normalizeResponseFormat = ({
   };
 };
 
+let _openai: OpenAI | null = null;
+function getOpenAIForLLM() {
+  if (!_openai) {
+    const key = ENV.openAiApiKey;
+    if (!key) return null;
+    _openai = new OpenAI({ apiKey: key });
+  }
+  return _openai;
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
@@ -279,6 +303,50 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  // If we have OpenAI key, prefer SDK for reliability with json_schema etc.
+  const openai = getOpenAIForLLM();
+  if (openai) {
+    const formattedMessages = messages.map((m) => {
+      const norm = normalizeMessage(m);
+      return {
+        role: norm.role as any,
+        content: norm.content as any,
+        ...(norm.name ? { name: norm.name } : {}),
+        ...( (norm as any).tool_call_id ? { tool_call_id: (norm as any).tool_call_id } : {}),
+      };
+    });
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: formattedMessages as any,
+      max_tokens: params.maxTokens ?? params.max_tokens ?? 4096,
+      ...(tools && tools.length ? { tools: tools as any } : {}),
+      ...( (toolChoice || tool_choice) ? { tool_choice: normalizeToolChoice(toolChoice || tool_choice, tools) as any } : {}),
+      response_format: normalizeResponseFormat({ responseFormat, response_format, outputSchema, output_schema }) as any,
+    });
+
+    return {
+      id: completion.id,
+      created: completion.created,
+      model: completion.model,
+      choices: completion.choices.map((c: any, i: number) => ({
+        index: i,
+        message: {
+          role: c.message.role,
+          content: c.message.content ?? "",
+          tool_calls: c.message.tool_calls,
+        },
+        finish_reason: c.finish_reason,
+      })),
+      usage: completion.usage ? {
+        prompt_tokens: completion.usage.prompt_tokens,
+        completion_tokens: completion.usage.completion_tokens,
+        total_tokens: completion.usage.total_tokens,
+      } : undefined,
+    } as InvokeResult;
+  }
+
+  // Fallback to custom/forge endpoint (original behavior)
   const payload: Record<string, unknown> = {
     model: "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
@@ -296,10 +364,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
-  }
+  payload.max_tokens = params.maxTokens ?? params.max_tokens ?? 32768;
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
@@ -312,11 +377,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  const response = await fetch(resolveChatUrl(), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${getApiKey()}`,
     },
     body: JSON.stringify(payload),
   });
