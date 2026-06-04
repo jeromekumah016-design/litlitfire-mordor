@@ -15,6 +15,8 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  const utils = trpc.useUtils();
+
   // Reset success animation after 2 seconds
   useEffect(() => {
     if (isSuccess) {
@@ -40,6 +42,9 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
       
       toast.success(`Book "${data.title}" uploaded successfully! Processing ${data.pageCount} pages.`);
       
+      // Invalidate list so new book + processing status shows immediately in Your Books (basic functionality)
+      utils.books.list.invalidate().catch(() => {});
+
       // Reset form after success animation
       setTimeout(() => {
         setFile(null);
