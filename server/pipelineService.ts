@@ -12,6 +12,7 @@ import { storagePut } from "./storage";
 import {
   createPage,
   updatePage,
+  getBookPages,
   createProcessingJob,
   updateProcessingJob,
   updateBook,
@@ -178,14 +179,19 @@ async function processPagePipelineWithContext(
   } catch (error) {
     console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
 
-    // Save error state to database
+    // Save error state to database (guard against duplicate from inner image error handler)
     const errorMessage = error instanceof Error ? error.message : String(error);
-    await createPage({
-      bookId,
-      pageNumber,
-      processingStatus: "error",
-      errorMessage,
-    });
+    try {
+      const existingPages = await getBookPages(bookId);
+      const existing = existingPages.find((p) => p.pageNumber === pageNumber);
+      if (existing) {
+        await updatePage(existing.id, { processingStatus: "error", errorMessage });
+      } else {
+        await createPage({ bookId, pageNumber, processingStatus: "error", errorMessage });
+      }
+    } catch (dbErr) {
+      console.error(`[Pipeline] Failed to record error page ${pageNumber}:`, dbErr);
+    }
 
     throw error;
   }
@@ -299,14 +305,19 @@ export async function processPagePipeline(
   } catch (error) {
     console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
 
-    // Save error state to database
+    // Save error state to database (guard against duplicate from inner image error handler)
     const errorMessage = error instanceof Error ? error.message : String(error);
-    await createPage({
-      bookId,
-      pageNumber,
-      processingStatus: "error",
-      errorMessage,
-    });
+    try {
+      const existingPages = await getBookPages(bookId);
+      const existing = existingPages.find((p) => p.pageNumber === pageNumber);
+      if (existing) {
+        await updatePage(existing.id, { processingStatus: "error", errorMessage });
+      } else {
+        await createPage({ bookId, pageNumber, processingStatus: "error", errorMessage });
+      }
+    } catch (dbErr) {
+      console.error(`[Pipeline] Failed to record error page ${pageNumber}:`, dbErr);
+    }
 
     throw error;
   }
