@@ -455,4 +455,82 @@ export const booksRouter = router({
         currency: "USD",
       };
     }),
+
+  /**
+   * Get library dashboard statistics
+   */
+  getDashboardStats: protectedProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const cacheKey = getCacheKey(ctx.user.id, 'dashboardStats');
+        const cached = getFromCache(cacheKey);
+        if (cached) return cached;
+
+        const { getDashboardStats } = await import('./db');
+        const stats = await getDashboardStats(ctx.user.id);
+        
+        if (stats) {
+          setInCache(cacheKey, stats);
+        }
+        return stats;
+      } catch (error) {
+        console.error('[Books Router] Get dashboard stats error:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch dashboard statistics',
+        });
+      }
+    }),
+
+  /**
+   * Get library overview with stats, recent books, and metrics
+   */
+  getLibraryOverview: protectedProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const cacheKey = getCacheKey(ctx.user.id, 'libraryOverview');
+        const cached = getFromCache(cacheKey);
+        if (cached) return cached;
+
+        const { getLibraryOverview } = await import('./db');
+        const overview = await getLibraryOverview(ctx.user.id);
+        
+        if (overview) {
+          setInCache(cacheKey, overview);
+        }
+        return overview;
+      } catch (error) {
+        console.error('[Books Router] Get library overview error:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch library overview',
+        });
+      }
+    }),
+
+  /**
+   * Get processing metrics
+   */
+  getProcessingMetrics: protectedProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const cacheKey = getCacheKey(ctx.user.id, 'processingMetrics');
+        const cached = getFromCache(cacheKey);
+        if (cached) return cached;
+
+        const { getProcessingMetrics } = await import('./db');
+        const metrics = await getProcessingMetrics(ctx.user.id);
+        
+        if (metrics) {
+          setInCache(cacheKey, metrics);
+        }
+        return metrics;
+      } catch (error) {
+        console.error('[Books Router] Get processing metrics error:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch processing metrics',
+        });
+      }
+    }),
 });

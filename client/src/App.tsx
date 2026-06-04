@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Books from "./pages/Books";
 import ImageGalleryView from "./pages/ImageGalleryView";
+import { LibraryDashboard } from "./pages/LibraryDashboard";
 import { useWebVitalsInit } from "./hooks/useWebVitalsInit";
 
 function Router() {
@@ -15,6 +16,7 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/books"} component={Books} />
+      <Route path={"/dashboard"} component={LibraryDashboard} />
       <Route path={"/gallery/:bookId"} component={ImageGalleryView} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}

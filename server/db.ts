@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { desc, inArray, eq } from "drizzle-orm";
 import {
   InsertUser,
   users,
@@ -150,4 +150,134 @@ export async function updateProcessingJob(jobId: number, updates: Partial<Proces
   const db = await getDb();
   if (!db) return;
   await db.update(processingJobs).set(updates).where(eq(processingJobs.id, jobId));
+}
+
+// Dashboard Statistics Queries
+export async function getDashboardStats(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const userBooks = await db
+    .select()
+    .from(books)
+    .where(eq(books.userId, userId));
+
+  const totalBooks = userBooks.length;
+  const completedBooks = userBooks.filter(b => b.processingStatus === 'completed').length;
+  const processingBooks = userBooks.filter(b => b.processingStatus === 'processing').length;
+  const failedBooks = userBooks.filter(b => b.processingStatus === 'failed').length;
+
+  // Get page statistics
+  let totalPages = 0;
+  let completedPages = 0;
+  let failedPages = 0;
+
+  for (const book of userBooks) {
+    const bookPages = await db
+      .select()
+      .from(pages)
+      .where(eq(pages.bookId, book.id));
+
+    totalPages += bookPages.length;
+    completedPages += bookPages.filter(p => p.processingStatus === 'done').length;
+    failedPages += bookPages.filter(p => p.processingStatus === 'error').length;
+  }
+
+  return {
+    totalBooks,
+    completedBooks,
+    processingBooks,
+    failedBooks,
+    totalPages,
+    completedPages,
+    failedPages,
+    successRate: totalPages > 0 ? Math.round((completedPages / totalPages) * 100) : 0,
+  };
+}
+
+export async function getRecentBooks(userId: number, limit: number = 10) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(books)
+    .where(eq(books.userId, userId))
+    .orderBy(desc(books.createdAt))
+    .limit(limit);
+}
+
+export async function getProcessingMetrics(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const userBooks = await db
+    .select()
+    .from(books)
+    .where(eq(books.userId, userId));
+
+  const bookIds = userBooks.map(b => b.id);
+
+  if (bookIds.length === 0) {
+    return {
+      avgProcessingTime: 0,
+      totalProcessingTime: 0,
+      pagesByStatus: { done: 0, error: 0, processing: 0, pending: 0 },
+      recentErrors: [],
+    };
+  }
+
+  const allPages = await db
+    .select()
+    .from(pages)
+    .where(inArray(pages.bookId, bookIds));
+
+  const pagesByStatus = {
+    done: allPages.filter(p => p.processingStatus === 'done').length,
+    error: allPages.filter(p => p.processingStatus === 'error').length,
+    processing: allPages.filter(p => p.processingStatus === 'processing').length,
+    pending: allPages.filter(p => p.processingStatus === 'pending').length,
+  };
+
+  const recentErrors = allPages
+    .filter(p => p.errorMessage && p.processingStatus === 'error')
+    .slice(0, 5)
+    .map(p => ({
+      pageId: p.id,
+      pageNumber: p.pageNumber,
+      error: p.errorMessage,
+      timestamp: p.updatedAt,
+    }));
+
+  // Calculate average processing time for completed pages
+  const completedPages = allPages.filter(p => p.processingStatus === 'done');
+  const avgProcessingTime = completedPages.length > 0
+    ? completedPages.reduce((sum, p) => {
+        const createdAt = p.createdAt?.getTime() || 0;
+        const updatedAt = p.updatedAt?.getTime() || 0;
+        return sum + (updatedAt - createdAt);
+      }, 0) / completedPages.length / 1000 // Convert to seconds
+    : 0;
+
+  return {
+    avgProcessingTime: Math.round(avgProcessingTime),
+    totalProcessingTime: completedPages.length,
+    pagesByStatus,
+    recentErrors,
+  };
+}
+
+export async function getLibraryOverview(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const stats = await getDashboardStats(userId);
+  const recentBooks = await getRecentBooks(userId, 5);
+  const metrics = await getProcessingMetrics(userId);
+
+  return {
+    stats,
+    recentBooks,
+    metrics,
+  };
 }
