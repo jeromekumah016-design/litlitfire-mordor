@@ -3,11 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox"; // assume or use button toggle
- import { trpc } from "@/lib/trpc";
+import { trpc } from "@/lib/trpc";
 import { 
   BookOpen, 
-  Play, 
   ChevronLeft, 
   ChevronRight, 
   Search, 
@@ -49,6 +47,7 @@ interface BookPageReadingDashboardProps {
  * Updated for split pipeline with review gate.
  * Stage 1: Transcribe Pages → Prompts (bible + per page distill)
  * Stage 2: Generate Photos from Approved Prompts (only approved, DALL-E)
+ * Per-page checkboxes (native input for no extra UI dep) to set promptApproved gate.
  */
 export default function BookPageReadingDashboard({
   book,
@@ -173,8 +172,14 @@ export default function BookPageReadingDashboard({
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-semibold flex items-center gap-1"><FileText className="w-4 h-4" /> Extracted Text (read for review)</span>
                     {currentPage && (
-                      <label className="flex items-center gap-2 text-sm cursor-pointer" onClick={() => toggleApprove(currentPage)}>
-                        <Checkbox checked={!!currentPage.promptApproved} /> Approve for photo gen
+                      <label className="flex items-center gap-2 text-sm cursor-pointer select-none" onClick={() => toggleApprove(currentPage)}>
+                        <input
+                          type="checkbox"
+                          checked={!!currentPage.promptApproved}
+                          readOnly
+                          className="h-4 w-4 accent-amber-600 border border-accent/40 rounded"
+                        />
+                        Approve for photo gen
                       </label>
                     )}
                   </div>
