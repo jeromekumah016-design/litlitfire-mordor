@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
-import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage } from "./db";
+import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage, getPage } from "./db";
 import { getPDFMetadata } from "./pdfService";
 import { processBookPipeline, generateStoryBible, transcribePages, renderApprovedImages } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
@@ -467,7 +467,7 @@ export const booksRouter = router({
   // === NEW: split pipeline steps (callable from UI for review gate) ===
 
   /**
-   * Stage 1a: generate story bible (one LLM pass)
+   * Stage 1a: generate story bible (one LLM pass over full book)
    */
   generateStoryBible: protectedProcedure
     .input(z.object({ bookId: z.number() }))
@@ -490,7 +490,7 @@ export const booksRouter = router({
     }),
 
   /**
-   * Stage 1b: transcribe pages to prompts (no images yet)
+   * Stage 1b: transcribe pages to prompts (no images yet). LLM distills + injects verbatim from bible.
    */
   transcribePages: protectedProcedure
     .input(z.object({ bookId: z.number() }))
@@ -512,7 +512,7 @@ export const booksRouter = router({
     }),
 
   /**
-   * Stage 2: render images only for approved prompts
+   * Stage 2: render images only for approved prompts (DALL-E, reuses guards)
    */
   renderApprovedImages: protectedProcedure
     .input(z.object({ bookId: z.number() }))
@@ -534,99 +534,25 @@ export const booksRouter = router({
     }),
 
   /**
-   * Approve or unapprove a page's prompt (the review gate)
+   * Approve or unapprove a page's prompt (the review gate). Matches existing protectedProcedure + TRPCError + owner check style.
    */
   setPromptApproved: protectedProcedure
     .input(z.object({ pageId: z.number(), approved: z.boolean() }))
     .mutation(async ({ input, ctx }) => {
       try {
-        // Verify ownership
-        const pagesForCheck = await getBookPages(0); // dummy, we'll fetch page
-        // Simple: fetch page then book
-        const db = await (await import('./db')).getDb(); // to avoid new style
-        if (!db) throw new Error('db');
-        const pageRes = await db.select().from((await import('../drizzle/schema')).pages).where((await import('drizzle-orm')).eq((await import('../drizzle/schema')).pages.id, input.pageId)).limit(1);
-        const page = pageRes[0];
-        if (!page) throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+        const page = await getPage(input.pageId);
+        if (!page) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+        }
         const book = await getBook(page.bookId);
         if (!book || book.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "No permission" });
+          throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to modify this page" });
         }
         await updatePage(input.pageId, { promptApproved: input.approved });
-        return { pageId: input.pageId, approved: input.approved };
+        return { pageId: input.pageId, promptApproved: input.approved };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Failed" });
-      }
-    }),
-
-  // keep the dashboard etc procs
-  getDashboardStats: protectedProcedure
-    .query(async ({ ctx }) => {
-      try {
-        const cacheKey = getCacheKey(ctx.user.id, 'dashboardStats');
-        const cached = getFromCache(cacheKey);
-        if (cached) return cached;
-
-        const { getDashboardStats } = await import('./db');
-        const stats = await getDashboardStats(ctx.user.id);
-        
-        if (stats) {
-          setInCache(cacheKey, stats);
-        }
-        return stats;
-      } catch (error) {
-        console.error('[Books Router] Get dashboard stats error:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch dashboard statistics',
-        });
-      }
-    }),
-
-  getLibraryOverview: protectedProcedure
-    .query(async ({ ctx }) => {
-      try {
-        const cacheKey = getCacheKey(ctx.user.id, 'libraryOverview');
-        const cached = getFromCache(cacheKey);
-        if (cached) return cached;
-
-        const { getLibraryOverview } = await import('./db');
-        const overview = await getLibraryOverview(ctx.user.id);
-        
-        if (overview) {
-          setInCache(cacheKey, overview);
-        }
-        return overview;
-      } catch (error) {
-        console.error('[Books Router] Get library overview error:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch library overview',
-        });
-      }
-    }),
-
-  getProcessingMetrics: protectedProcedure
-    .query(async ({ ctx }) => {
-      try {
-        const cacheKey = getCacheKey(ctx.user.id, 'processingMetrics');
-        const cached = getFromCache(cacheKey);
-        if (cached) return cached;
-
-        const { getProcessingMetrics } = await import('./db');
-        const metrics = await getProcessingMetrics(ctx.user.id);
-        
-        if (metrics) {
-          setInCache(cacheKey, metrics);
-        }
-        return metrics;
-      } catch (error) {
-        console.error('[Books Router] Get processing metrics error:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch processing metrics',
-        });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Failed to set approval" });
       }
     }),
 });
