@@ -45,9 +45,9 @@ interface BookPageReadingDashboardProps {
 
 /**
  * Updated for split pipeline with review gate.
- * Stage 1: Transcribe Pages → Prompts (bible + per page distill)
+ * Stage 1: Transcribe Pages → Prompts (bible + per page distill with paraphrase+verbatim)
  * Stage 2: Generate Photos from Approved Prompts (only approved, DALL-E)
- * Per-page checkboxes (native input for no extra UI dep) to set promptApproved gate.
+ * Per-page checkboxes (native) for promptApproved gate.
  */
 export default function BookPageReadingDashboard({
   book,
@@ -103,12 +103,15 @@ export default function BookPageReadingDashboard({
     return <Badge variant="outline" className="text-xs">Pending</Badge>;
   };
 
-  // Stage 1: call the split transcribe (assumes bible first or combined in proc)
+  const bibleMut = trpc.books.generateStoryBible.useMutation({ onSuccess: () => utils.books.getDetails.invalidate({bookId: book.id}) });
   const stage1Mut = trpc.books.transcribePages.useMutation({ onSuccess: () => utils.books.getDetails.invalidate({bookId: book.id}) });
   const stage2Mut = trpc.books.renderApprovedImages.useMutation({ onSuccess: () => utils.books.getDetails.invalidate({bookId: book.id}) });
 
-  const handleStage1 = () => {
-    // for simplicity call transcribe; in full would call generate first if no bible
+  const handleStage1 = async () => {
+    // Stage 1 = bible (if needed) + per-page transcription (paraphrase/distill + verbatim inject)
+    if (!book.storyBible) {
+      await bibleMut.mutateAsync({ bookId: book.id });
+    }
     stage1Mut.mutate({ bookId: book.id });
   };
   const handleStage2 = () => {
@@ -131,8 +134,8 @@ export default function BookPageReadingDashboard({
           </div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={handleStage1} disabled={stage1Mut.isPending || !hasPages} className="gap-2" variant="outline">
-            {stage1Mut.isPending ? "Transcribing..." : "Stage 1: Transcribe Pages → Prompts"}
+          <Button onClick={handleStage1} disabled={bibleMut.isPending || stage1Mut.isPending || !hasPages} className="gap-2" variant="outline">
+            {(bibleMut.isPending || stage1Mut.isPending) ? "Transcribing..." : "Stage 1: Transcribe Pages → Prompts"}
           </Button>
           <Button 
             onClick={handleStage2} 
