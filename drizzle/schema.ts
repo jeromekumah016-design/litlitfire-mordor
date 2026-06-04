@@ -8,6 +8,8 @@ import {
   numeric,
   index,
   serial,
+  boolean,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -17,6 +19,10 @@ export const pageStatusEnum = pgEnum("page_processing_status", ["pending", "proc
 export const retryStatusEnum = pgEnum("retry_status", ["pending", "processing", "success", "failed"]);
 export const jobTypeEnum = pgEnum("job_type", ["extract_pdf", "ocr", "generate_prompt", "generate_image"]);
 export const jobStatusEnum = pgEnum("job_status", ["pending", "processing", "completed", "failed"]);
+
+// New for split pipeline with review gate
+export const promptStatusEnum = pgEnum("page_prompt_status", ["pending", "transcribing", "prompt_ready", "prompt_error"]);
+export const imageStatusEnum = pgEnum("page_image_status", ["pending", "generating", "image_ready", "image_error"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -44,6 +50,7 @@ export const books = pgTable(
     pdfFileUrl: varchar("pdfFileUrl", { length: 1024 }).notNull(),
     pageCount: integer("pageCount").notNull(),
     processingStatus: bookStatusEnum("processingStatus").default("pending").notNull(),
+    storyBible: jsonb("storyBible"),
     totalPrice: numeric("totalPrice", { precision: 10, scale: 2 }).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -70,6 +77,12 @@ export const pages = pgTable(
     generatedImageFileKey: varchar("generatedImageFileKey", { length: 255 }),
     generatedImageUrl: varchar("generatedImageUrl", { length: 1024 }),
     processingStatus: pageStatusEnum("processingStatus").default("pending").notNull(),
+    // split statuses for two-phase with review gate
+    promptStatus: promptStatusEnum("promptStatus").default("pending").notNull(),
+    imageStatus: imageStatusEnum("imageStatus").default("pending").notNull(),
+    promptApproved: boolean("promptApproved").default(false).notNull(),
+    promptStructured: jsonb("promptStructured"),
+    skipSuggested: boolean("skipSuggested").default(false).notNull(),
     errorMessage: text("errorMessage"),
     retryCount: integer("retryCount").default(0).notNull(),
     maxRetries: integer("maxRetries").default(3).notNull(),
