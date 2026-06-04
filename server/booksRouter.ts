@@ -131,7 +131,7 @@ export const booksRouter = router({
     }),
 
   /**
-   * Start processing a PDF book
+   * Start processing a PDF book (now actually triggers the pipeline for photo generation)
    */
   processPdf: protectedProcedure
     .input(z.object({ bookId: z.number() }))
@@ -162,8 +162,28 @@ export const booksRouter = router({
           };
         }
 
-        // Mark as processing and trigger pipeline
+        // Mark as processing
         await updateBook(input.bookId, { processingStatus: "processing" });
+
+        // Re-trigger the actual pipeline by re-fetching the stored PDF (basic functionality fix)
+        // This makes the "Start Processing" button (and retry flows) produce the generated photos
+        if (book.pdfFileUrl) {
+          try {
+            const pdfResp = await fetch(book.pdfFileUrl);
+            if (!pdfResp.ok) {
+              throw new Error(`Failed to fetch PDF from storage (status ${pdfResp.status})`);
+            }
+            const pdfBuffer = Buffer.from(await pdfResp.arrayBuffer());
+            processBookPipeline(book.id, pdfBuffer).catch((error) => {
+              console.error("[Books Router] processPdf pipeline error:", error);
+            });
+          } catch (fetchErr) {
+            console.error("[Books Router] Could not re-fetch PDF for processing (url may need public access or signed url):", fetchErr);
+            // Status is already set to processing; user can retry or check logs
+          }
+        } else {
+          console.warn("[Books Router] Book has no pdfFileUrl, cannot re-trigger pipeline");
+        }
 
         return {
           bookId: input.bookId,
