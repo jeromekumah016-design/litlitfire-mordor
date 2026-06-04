@@ -52,7 +52,7 @@ describe("pdfService", () => {
     testPDFBuffer = createTestPDFBuffer();
   });
 
-  describe.skip("extractPDFPages", () => {
+  describe("extractPDFPages", () => {
     it("should extract pages from a valid PDF", async () => {
       const result = await extractPDFPages(testPDFBuffer);
 
@@ -112,7 +112,7 @@ describe("pdfService", () => {
     });
   });
 
-  describe.skip("getPDFMetadata", () => {
+  describe("getPDFMetadata", () => {
     it("should extract PDF metadata", async () => {
       const metadata = await getPDFMetadata(testPDFBuffer);
 
