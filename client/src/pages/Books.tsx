@@ -10,7 +10,6 @@ import PDFPreviewCarousel from "./PDFPreviewCarousel";
 import PDFPreviewCarouselOptimized from "@/components/PDFPreviewCarouselOptimized";
 import DevModeDiagnostics from "./DevModeDiagnostics";
 import BookListCard from "@/components/BookListCard";
-import { ProcessingProgress } from "@/components/ProcessingProgress";
 
 export default function Books() {
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
@@ -65,10 +64,6 @@ export default function Books() {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-3 space-y-6">
-            {((book as any).processingStatus === "processing" || (book as any).processingStatus === "failed") && (
-              <ProcessingProgress bookId={(book as any).id} autoRefresh={true} refreshInterval={2000} />
-            )}
-            
             <div className="relative bg-white/50 p-8 rounded-lg shadow-inner border border-accent/10 min-h-[600px] flex flex-col items-center justify-center">
               <div className="absolute top-4 right-4 flex gap-2">
                 <span className="px-3 py-1 bg-accent/10 text-accent text-xs rounded-full border border-accent/20">AI Analysis Active</span>
