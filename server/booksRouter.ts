@@ -3,7 +3,7 @@ import { protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
 import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage } from "./db";
 import { getPDFMetadata } from "./pdfService";
-import { processBookPipeline } from "./pipelineService";
+import { processBookPipeline, generateStoryBible, transcribePages, renderApprovedImages } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
 import { TRPCError } from "@trpc/server";
 
@@ -256,7 +256,7 @@ export const booksRouter = router({
   }),
 
   /**
-   * Get book details with pages
+   * Get book details with pages (extended with new split status + gate fields; matches existing return shape)
    */
   getDetails: protectedProcedure
     .input(z.object({ bookId: z.number() }))
@@ -293,6 +293,7 @@ export const booksRouter = router({
           pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice),
           processingStatus: book.processingStatus,
+          storyBible: book.storyBible,
           pages: bookPages.map((page) => ({
             id: page.id,
             pageNumber: page.pageNumber,
@@ -301,6 +302,11 @@ export const booksRouter = router({
             generatedPrompt: page.generatedPrompt,
             generatedImageUrl: page.generatedImageUrl,
             processingStatus: page.processingStatus,
+            promptStatus: page.promptStatus,
+            imageStatus: page.imageStatus,
+            promptApproved: page.promptApproved,
+            promptStructured: page.promptStructured,
+            skipSuggested: page.skipSuggested,
             errorMessage: page.errorMessage,
             retryCount: page.retryCount,
             maxRetries: page.maxRetries,
@@ -324,7 +330,7 @@ export const booksRouter = router({
     }),
 
   /**
-   * Get processing progress for a book
+   * Get processing progress for a book (extended minimally)
    */
   getProgress: protectedProcedure
     .input(z.object({ bookId: z.number() }))
@@ -347,24 +353,24 @@ export const booksRouter = router({
 
         const pages = await getBookPages(input.bookId);
         const totalPages = pages.length;
-        const completedPages = pages.filter((p) => p.processingStatus === "done").length;
-        const failedPages = pages.filter((p) => p.processingStatus === "error").length;
-        const processingPages = pages.filter((p) => p.processingStatus === "processing").length;
-        const pendingPages = pages.filter((p) => p.processingStatus === "pending").length;
+        const promptReady = pages.filter((p) => p.promptStatus === "prompt_ready").length;
+        const imageReady = pages.filter((p) => p.imageStatus === "image_ready").length;
+        const approved = pages.filter((p) => p.promptApproved).length;
 
         return {
           bookId: input.bookId,
           totalPages,
-          completedPages,
-          failedPages,
-          processingPages,
-          pendingPages,
-          progressPercentage: totalPages > 0 ? Math.round((completedPages / totalPages) * 100) : 0,
+          promptReady,
+          imageReady,
+          approvedForRender: approved,
           bookStatus: book.processingStatus,
           pages: pages.map((page) => ({
             id: page.id,
             pageNumber: page.pageNumber,
             processingStatus: page.processingStatus,
+            promptStatus: page.promptStatus,
+            imageStatus: page.imageStatus,
+            promptApproved: page.promptApproved,
             errorMessage: page.errorMessage,
             generatedImageUrl: page.generatedImageUrl,
           })),
@@ -416,6 +422,8 @@ export const booksRouter = router({
         for (const page of failedPages) {
           await updatePage(page.id, {
             processingStatus: "pending",
+            promptStatus: "pending",
+            imageStatus: "pending",
             errorMessage: null,
             retryCount: (page.retryCount || 0) + 1,
           });
@@ -456,9 +464,103 @@ export const booksRouter = router({
       };
     }),
 
+  // === NEW: split pipeline steps (callable from UI for review gate) ===
+
   /**
-   * Get library dashboard statistics
+   * Stage 1a: generate story bible (one LLM pass)
    */
+  generateStoryBible: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const book = await getBook(input.bookId);
+        if (!book) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        }
+        if (book.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No permission" });
+        }
+        await generateStoryBible(input.bookId);
+        await updateBook(input.bookId, { processingStatus: "processing" });
+        return { bookId: input.bookId, status: "bible_ready", message: "Story bible generated" };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Failed" });
+      }
+    }),
+
+  /**
+   * Stage 1b: transcribe pages to prompts (no images yet)
+   */
+  transcribePages: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const book = await getBook(input.bookId);
+        if (!book) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        }
+        if (book.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No permission" });
+        }
+        const result = await transcribePages(input.bookId);
+        return { bookId: input.bookId, ...result, message: "Pages transcribed to prompts" };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Failed" });
+      }
+    }),
+
+  /**
+   * Stage 2: render images only for approved prompts
+   */
+  renderApprovedImages: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const book = await getBook(input.bookId);
+        if (!book) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        }
+        if (book.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No permission" });
+        }
+        const result = await renderApprovedImages(input.bookId);
+        return { bookId: input.bookId, ...result, message: "Approved images rendered" };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Failed" });
+      }
+    }),
+
+  /**
+   * Approve or unapprove a page's prompt (the review gate)
+   */
+  setPromptApproved: protectedProcedure
+    .input(z.object({ pageId: z.number(), approved: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        // Verify ownership
+        const pagesForCheck = await getBookPages(0); // dummy, we'll fetch page
+        // Simple: fetch page then book
+        const db = await (await import('./db')).getDb(); // to avoid new style
+        if (!db) throw new Error('db');
+        const pageRes = await db.select().from((await import('../drizzle/schema')).pages).where((await import('drizzle-orm')).eq((await import('../drizzle/schema')).pages.id, input.pageId)).limit(1);
+        const page = pageRes[0];
+        if (!page) throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+        const book = await getBook(page.bookId);
+        if (!book || book.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No permission" });
+        }
+        await updatePage(input.pageId, { promptApproved: input.approved });
+        return { pageId: input.pageId, approved: input.approved };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Failed" });
+      }
+    }),
+
+  // keep the dashboard etc procs
   getDashboardStats: protectedProcedure
     .query(async ({ ctx }) => {
       try {
@@ -482,9 +584,6 @@ export const booksRouter = router({
       }
     }),
 
-  /**
-   * Get library overview with stats, recent books, and metrics
-   */
   getLibraryOverview: protectedProcedure
     .query(async ({ ctx }) => {
       try {
@@ -508,9 +607,6 @@ export const booksRouter = router({
       }
     }),
 
-  /**
-   * Get processing metrics
-   */
   getProcessingMetrics: protectedProcedure
     .query(async ({ ctx }) => {
       try {
