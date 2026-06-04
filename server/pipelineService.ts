@@ -418,9 +418,9 @@ export async function processBookPipeline(
     return { successCount, failureCount };
   } catch (error) {
     console.error(`[Pipeline] Fatal error processing book ${bookId}:`, error);
-    console.error(`[Pipeline] Error stack:", error instanceof Error ? error.stack : 'No stack trace');
-    console.error(`[Pipeline] Error type:", typeof error);
-    console.error(`[Pipeline] Error JSON:", JSON.stringify(error, null, 2));
+    console.error(`[Pipeline] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+    console.error(`[Pipeline] Error type:`, typeof error);
+    console.error(`[Pipeline] Error JSON:`, JSON.stringify(error, null, 2));
 
     // Update book status to failed
     const errorMessage = error instanceof Error ? error.message : String(error);
