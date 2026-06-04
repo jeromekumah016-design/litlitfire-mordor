@@ -36,6 +36,13 @@
       "when": 1779159191815,
       "tag": "0004_sudden_aaron_stack",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1779159600000,
+      "tag": "0005_prompt_transcription_gate",
+      "breakpoints": true
     }
   ]
 }

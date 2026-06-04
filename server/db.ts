@@ -96,6 +96,14 @@ export async function getBook(bookId: number): Promise<Book | null> {
   return result[0] ?? null;
 }
 
+// Added for prompt gate review (setPromptApproved) - matches getBook pattern exactly
+export async function getPage(pageId: number): Promise<Page | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(pages).where(eq(pages.id, pageId)).limit(1);
+  return result[0] ?? null;
+}
+
 export async function getUserBooks(userId: number): Promise<Book[]> {
   const db = await getDb();
   if (!db) return [];

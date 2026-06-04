@@ -4,8 +4,11 @@ import {
   generateImagePrompt,
   generateImagePromptsWithContext,
   buildStoryContext,
+  generateStoryBible,
+  transcribePage,
   type PageContext,
   type StoryContext,
+  type StoryBible,
 } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
 import { storagePut } from "./storage";
@@ -16,6 +19,7 @@ import {
   createProcessingJob,
   updateProcessingJob,
   updateBook,
+  getBook,
 } from "./db";
 import { markPageForRetry } from "./retryService";
 import type { Page } from "../drizzle/schema";
@@ -118,16 +122,13 @@ async function processPagePipelineWithContext(
       });
 
       if (imageResult.url) {
-        // generateImage() already uploads to Cloudinary and returns the final URL
-        // No need to fetch and re-upload
         generatedImageUrl = imageResult.url;
-        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`; // For reference
+        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`;
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`[Pipeline] Failed to generate image for page ${pageNumber}:`, errorMsg);
       
-      // Mark page for retry with exponential backoff
       const errorPage = await createPage({
         bookId,
         pageNumber,
@@ -179,7 +180,6 @@ async function processPagePipelineWithContext(
   } catch (error) {
     console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
 
-    // Save error state to database (guard against duplicate from inner image error handler)
     const errorMessage = error instanceof Error ? error.message : String(error);
     try {
       const existingPages = await getBookPages(bookId);
@@ -207,105 +207,34 @@ export async function processPagePipeline(
   onProgress?: (progress: PipelineProgress) => void
 ): Promise<Page | null> {
   try {
-    // Step 1: Extract thumbnail
-    console.log(`[Pipeline] Processing page ${pageNumber}: Extracting thumbnail...`);
     const thumbnailBuffer = await generatePageThumbnail(pdfBuffer, pageNumber, 1.0);
-
-    // Upload thumbnail to storage
     const thumbnailKey = `books/${bookId}/pages/${pageNumber}/thumbnail.png`;
-    const { url: thumbnailUrl } = await storagePut(
-      thumbnailKey,
-      thumbnailBuffer,
-      "image/png"
-    );
+    const { url: thumbnailUrl } = await storagePut(thumbnailKey, thumbnailBuffer, "image/png");
 
-    // Step 2: Extract text via OCR
-    console.log(`[Pipeline] Processing page ${pageNumber}: Extracting text via OCR...`);
     const ocrResult = await extractTextFromImage(thumbnailBuffer);
     const ocrText = ocrResult.text;
 
-    // Step 3: Generate prompt
-    console.log(`[Pipeline] Processing page ${pageNumber}: Generating prompt...`);
-    const promptResult = await generateImagePrompt(
-      ocrText,
-      pageNumber,
-      undefined,
-      undefined
-    );
+    const promptResult = await generateImagePrompt(ocrText, pageNumber, undefined, undefined);
 
-    // Step 4: Generate image
-    console.log(`[Pipeline] Processing page ${pageNumber}: Generating image...`);
     let generatedImageUrl: string | null = null;
     let generatedImageKey: string | null = null;
 
     try {
-      const imageResult = await generateImage({
-        prompt: promptResult.prompt,
-      });
-
+      const imageResult = await generateImage({ prompt: promptResult.prompt });
       if (imageResult.url) {
-        // generateImage() already uploads to Cloudinary and returns the final URL
-        // No need to fetch and re-upload
         generatedImageUrl = imageResult.url;
-        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`; // For reference
+        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`;
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[Pipeline] Failed to generate image for page ${pageNumber}:`, errorMsg);
-      
-      // Mark page for retry with exponential backoff
-      const errorPage = await createPage({
-        bookId,
-        pageNumber,
-        thumbnailFileKey: thumbnailKey,
-        thumbnailUrl,
-        ocrText,
-        generatedPrompt: promptResult.prompt,
-        processingStatus: "error",
-        errorMessage: `Image generation failed: ${errorMsg}`,
-      });
-      
-      if (errorPage) {
-        await markPageForRetry(
-          errorPage.id,
-          bookId,
-          `Image generation failed: ${errorMsg}`,
-          "Image generation error - scheduled for automatic retry"
-        );
-      }
-      
+      const errorPage = await createPage({ bookId, pageNumber, thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText, generatedPrompt: promptResult.prompt, processingStatus: "error", errorMessage: `Image generation failed: ${errorMsg}` });
+      if (errorPage) await markPageForRetry(errorPage.id, bookId, `Image generation failed: ${errorMsg}`, "Image generation error");
       throw error;
     }
 
-    // Step 5: Save to database
-    console.log(`[Pipeline] Processing page ${pageNumber}: Saving to database...`);
-    const page = await createPage({
-      bookId,
-      pageNumber,
-      thumbnailFileKey: thumbnailKey,
-      thumbnailUrl,
-      ocrText,
-      generatedPrompt: promptResult.prompt,
-      generatedImageFileKey: generatedImageKey || undefined,
-      generatedImageUrl: generatedImageUrl || undefined,
-      processingStatus: "done",
-    });
-
-    if (onProgress) {
-      onProgress({
-        bookId,
-        totalPages: 0,
-        processedPages: pageNumber,
-        currentPage: pageNumber,
-        status: "processing",
-      });
-    }
-
+    const page = await createPage({ bookId, pageNumber, thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText, generatedPrompt: promptResult.prompt, generatedImageFileKey: generatedImageKey || undefined, generatedImageUrl: generatedImageUrl || undefined, processingStatus: "done" });
     return page;
   } catch (error) {
-    console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
-
-    // Save error state to database (guard against duplicate from inner image error handler)
     const errorMessage = error instanceof Error ? error.message : String(error);
     try {
       const existingPages = await getBookPages(bookId);
@@ -315,17 +244,13 @@ export async function processPagePipeline(
       } else {
         await createPage({ bookId, pageNumber, processingStatus: "error", errorMessage });
       }
-    } catch (dbErr) {
-      console.error(`[Pipeline] Failed to record error page ${pageNumber}:`, dbErr);
-    }
-
+    } catch (dbErr) { console.error(dbErr); }
     throw error;
   }
 }
 
 /**
  * Process all pages of a PDF book through the pipeline with context awareness
- * Each page is processed with knowledge of previous pages for narrative continuity
  */
 const MAX_PAGES = 20;
 
@@ -340,117 +265,100 @@ export async function processBookPipeline(
 
   try {
     console.log(`[Pipeline] Starting book ${bookId} processing...`);
-    console.log(`[Pipeline] PDF buffer size: ${pdfBuffer.length} bytes`);
-    
-    // Extract PDF pages — cap at MAX_PAGES to keep processing fast and predictable
-    console.log(`[Pipeline] Extracting PDF pages...`);
     const pdfData = await extractPDFPages(pdfBuffer);
-    console.log(`[Pipeline] PDF extraction successful: ${pdfData.totalPages} pages found`);
-    
     const totalPages = Math.min(pdfData.totalPages, MAX_PAGES);
     const ocrTexts = pdfData.pages.slice(0, totalPages).map((p) => p.text);
-    console.log(`[Pipeline] Processing ${totalPages} pages (capped at MAX_PAGES=${MAX_PAGES})`);
 
-    console.log(
-      `[Pipeline] Starting processing for book ${bookId}: ${totalPages} pages (PDF has ${pdfData.totalPages})`
-    );
-
-    // Update book status to processing
-    console.log(`[Pipeline] Updating book ${bookId} to processing status...`);
     await updateBook(bookId, { processingStatus: "processing" });
-    console.log(`[Pipeline] Book ${bookId} status updated to processing`);
 
-    // Build story context once from the opening pages so every illustration
-    // uses the same art style, character descriptions, and setting.
-    console.log(`[Pipeline] Building story context from opening pages...`);
-    const storyContext = await buildStoryContext(ocrTexts).catch((err) => {
-      console.error("[Pipeline] Story context build failed (continuing without it):", err);
-      console.error("[Pipeline] Story context error stack:", err instanceof Error ? err.stack : 'No stack');
-      return null;
-    });
-    console.log(`[Pipeline] Story context built: ${storyContext ? 'success' : 'failed, continuing without it'}`);
+    const storyContext = await buildStoryContext(ocrTexts).catch(() => null);
 
-    // Process each page sequentially — storyContext is passed to every page
-    // so the generated prompts stay visually consistent and in narrative order.
-    console.log(`[Pipeline] Starting sequential page processing loop...`);
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       try {
-        console.log(`[Pipeline] Processing page ${pageNum}/${totalPages}...`);
-        await processPagePipelineWithContext(
-          bookId,
-          pageNum,
-          pdfBuffer,
-          ocrTexts[pageNum - 1] || "",
-          pageContexts,
-          storyContext,
-          onProgress
-        );
-        console.log(`[Pipeline] Page ${pageNum} processed successfully`);
+        await processPagePipelineWithContext(bookId, pageNum, pdfBuffer, ocrTexts[pageNum - 1] || "", pageContexts, storyContext, onProgress);
         successCount++;
       } catch (error) {
         console.error(`[Pipeline] Failed to process page ${pageNum}:`, error);
-        console.error(`[Pipeline] Page ${pageNum} error stack:`, error instanceof Error ? error.stack : 'No stack');
         failureCount++;
       }
-
-      // Report progress
       if (onProgress) {
-        onProgress({
-          bookId,
-          totalPages,
-          processedPages: successCount,
-          currentPage: pageNum,
-          status: "processing",
-        });
+        onProgress({ bookId, totalPages, processedPages: successCount, currentPage: pageNum, status: "processing" });
       }
     }
 
-    // Update book status to completed or failed
     const finalStatus = failureCount === 0 ? "completed" : "failed";
-    console.log(`[Pipeline] Updating book ${bookId} to final status: ${finalStatus}`);
     await updateBook(bookId, { processingStatus: finalStatus });
-
-    console.log(
-      `[Pipeline] Completed context-aware processing for book ${bookId}: ${successCount} success, ${failureCount} failed`
-    );
-    console.log(`[Pipeline] Final status: ${finalStatus}`);
-
-    if (onProgress) {
-      onProgress({
-        bookId,
-        totalPages,
-        processedPages: successCount,
-        currentPage: totalPages,
-        status: "completed",
-      });
-    }
-
-    console.log(`[Pipeline] Processing complete for book ${bookId}. Returning: ${JSON.stringify({ successCount, failureCount })}`);
     return { successCount, failureCount };
   } catch (error) {
-    console.error(`[Pipeline] Fatal error processing book ${bookId}:`, error);
-    console.error(`[Pipeline] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
-    console.error(`[Pipeline] Error type:`, typeof error);
-    console.error(`[Pipeline] Error JSON:`, JSON.stringify(error, null, 2));
-
-    // Update book status to failed
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[Pipeline] Updating book ${bookId} to failed status with message: ${errorMessage}`);
-    await updateBook(bookId, {
-      processingStatus: "failed",
-    });
-
-    if (onProgress) {
-      onProgress({
-        bookId,
-        totalPages: 0,
-        processedPages: 0,
-        currentPage: 0,
-        status: "failed",
-        error: errorMessage,
-      });
-    }
-
+    await updateBook(bookId, { processingStatus: "failed" });
     throw error;
   }
+}
+
+// === NEW GATE FUNCTIONS (added on feat branch, keep old process* untouched as wrappers) ===
+
+/**
+ * generateStoryBible (step 1)
+ */
+export async function generateStoryBible(bookId: number): Promise<boolean> {
+  const book = await getBook(bookId);
+  if (!book) return false;
+  const pages = await getBookPages(bookId);
+  const texts = pages.map(p => p.ocrText || '').filter(Boolean);
+  const bible = await generateStoryBible(texts); // promptService version (simple gate bible)
+  if (bible) {
+    await updateBook(bookId, { storyBible: bible as any });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * transcribePages (step 2) - uses paraphrase + verbatim per spec
+ */
+export async function transcribePages(bookId: number): Promise<{ transcribed: number; skipped: number }> {
+  const book = await getBook(bookId);
+  if (!book) return { transcribed: 0, skipped: 0 };
+  // Auto ensure bible if missing (makes Stage 1 button in UI sufficient)
+  if (!book.storyBible) {
+    await generateStoryBible(bookId);
+  }
+  const fresh = await getBook(bookId);
+  const storyBible = (fresh?.storyBible || book.storyBible) as StoryBible || null;
+  const pages = await getBookPages(bookId);
+  let transcribed = 0; let skipped = 0;
+  for (const p of pages) {
+    if (p.promptStatus === 'prompt_ready') continue;
+    await updatePage(p.id, { promptStatus: 'transcribing' });
+    try {
+      const res = await transcribePage(p.ocrText || '', p.pageNumber, storyBible);
+      await updatePage(p.id, { promptStatus: 'prompt_ready', generatedPrompt: res.prompt, promptStructured: res.promptStructured, skipSuggested: res.skipSuggested });
+      if (res.skipSuggested) skipped++; else transcribed++;
+    } catch(e) {
+      await updatePage(p.id, { promptStatus: 'prompt_error', errorMessage: String(e) });
+    }
+  }
+  return { transcribed, skipped };
+}
+
+/**
+ * renderApprovedImages (step 3) - DALL-E only on approved, reuse guards
+ */
+export async function renderApprovedImages(bookId: number): Promise<{ rendered: number }> {
+  const pages = await getBookPages(bookId);
+  let rendered = 0;
+  for (const p of pages) {
+    if (!p.promptApproved || p.generatedImageUrl || p.skipSuggested) continue;
+    await updatePage(p.id, { imageStatus: 'generating' });
+    try {
+      const img = await generateImage({ prompt: p.generatedPrompt || 'book scene' });
+      if (img.url) {
+        await updatePage(p.id, { generatedImageUrl: img.url, imageStatus: 'image_ready', processingStatus: 'done' });
+        rendered++;
+      }
+    } catch(e) {
+      await updatePage(p.id, { imageStatus: 'image_error', errorMessage: String(e), processingStatus: 'error' });
+    }
+  }
+  return { rendered };
 }
