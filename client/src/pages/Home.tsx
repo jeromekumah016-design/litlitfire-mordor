@@ -136,7 +136,7 @@ export default function Home() {
                     size="lg"
                     className="btn-glow bg-gradient-to-r from-accent to-orange-400 hover:from-accent/90 hover:to-orange-400/90 text-background font-bold px-8 py-6 text-lg rounded-lg transition-all"
                   >
-                    <a href={getLoginUrl()}>Enter the Library</a>
+                    <a href="/books">Enter the Library</a>
                   </Button>
                 )}
               </div>
