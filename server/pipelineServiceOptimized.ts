@@ -23,6 +23,20 @@ export interface PipelineProgress {
 }
 
 /**
+ * Thrown by a page step that already persisted an error row + scheduled a retry,
+ * so the function-level catch doesn't write a second time for the same page.
+ * (See the identical pattern in pipelineService.ts.)
+ */
+class PageRecordedError extends Error {
+  readonly original: unknown;
+  constructor(original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = "PageRecordedError";
+    this.original = original;
+  }
+}
+
+/**
  * Configuration for batch processing
  */
 const PIPELINE_CONFIG = {
@@ -173,7 +187,8 @@ async function processPageOptimized(
         );
       }
 
-      throw error;
+      // Error row + retry already persisted — don't let the outer catch write again.
+      throw new PageRecordedError(error);
     }
 
     console.log(`[Pipeline] Processing page ${pageNumber}: Saving to database...`);
@@ -201,6 +216,11 @@ async function processPageOptimized(
 
     return page;
   } catch (error) {
+    // Image-generation step already recorded the error row + retry.
+    if (error instanceof PageRecordedError) {
+      throw error;
+    }
+
     console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
 
     const errorMessage = error instanceof Error ? error.message : String(error);
