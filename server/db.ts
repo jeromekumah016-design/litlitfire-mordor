@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -117,6 +117,33 @@ export async function updateBook(bookId: number, updates: Partial<Book>): Promis
 export async function createPage(page: InsertPage): Promise<Page | null> {
   const db = await getDb();
   if (!db) return null;
+
+  // Upsert by (bookId, pageNumber). Processing a page — whether the first run or
+  // a retry — must update the existing row rather than insert a duplicate. The
+  // schema has a (bookId, pageNumber) index but no DB-level unique constraint,
+  // so we match in application code. Page processing for a given page is
+  // sequential (the pipeline loops pages in order and the retry worker handles
+  // distinct pages), so there is no concurrent-insert race to guard against.
+  const existing = await db
+    .select()
+    .from(pages)
+    .where(and(eq(pages.bookId, page.bookId), eq(pages.pageNumber, page.pageNumber)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    const { bookId: _bookId, pageNumber: _pageNumber, ...rest } = page;
+    const updateSet: Record<string, unknown> = { updatedAt: new Date() };
+    for (const [key, value] of Object.entries(rest)) {
+      if (value !== undefined) updateSet[key] = value;
+    }
+    const updated = await db
+      .update(pages)
+      .set(updateSet)
+      .where(eq(pages.id, existing[0].id))
+      .returning();
+    return updated[0] ?? null;
+  }
+
   const result = await db.insert(pages).values(page).returning();
   return result[0] ?? null;
 }
