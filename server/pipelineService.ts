@@ -1,5 +1,4 @@
 import { extractPDFPages, generatePageThumbnail } from "./pdfService";
-import { extractTextFromImage } from "./ocrService";
 import {
   generateImagePrompt,
   generateImagePromptsWithContext,
@@ -252,10 +251,14 @@ export async function processPagePipeline(
       "image/png"
     );
 
-    // Step 2: Extract text via OCR
-    console.log(`[Pipeline] Processing page ${pageNumber}: Extracting text via OCR...`);
-    const ocrResult = await extractTextFromImage(thumbnailBuffer);
-    const ocrText = ocrResult.text;
+    // Step 2: Extract this page's text from the PDF text layer — the same
+    // source the primary context-aware pipeline uses. The server-side
+    // thumbnail is a 1x1 placeholder (real rendering happens client-side), so
+    // OCR'ing it would return empty text and, via the createPage upsert,
+    // overwrite the page's real content with a blank "empty page" on retry.
+    console.log(`[Pipeline] Processing page ${pageNumber}: Extracting page text...`);
+    const pdfData = await extractPDFPages(pdfBuffer);
+    const ocrText = pdfData.pages[pageNumber - 1]?.text ?? "";
 
     // Step 3: Generate prompt
     console.log(`[Pipeline] Processing page ${pageNumber}: Generating prompt...`);
