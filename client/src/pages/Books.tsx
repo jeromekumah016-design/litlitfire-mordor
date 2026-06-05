@@ -126,7 +126,8 @@ export default function Books() {
                   </p>
                 </div>
 
-                {(book as any).processingStatus === "pending" && (
+                {((book as any).processingStatus === "pending" ||
+                  (book as any).processingStatus === "failed") && (
                   <Button
                     onClick={() => handleProcessPdf((book as any).id)}
                     disabled={processPdfMutation.isPending}
@@ -140,7 +141,9 @@ export default function Books() {
                     ) : (
                       <>
                         <Play className="mr-2 h-4 w-4" />
-                        Start Processing
+                        {(book as any).processingStatus === "failed"
+                          ? "Reprocess Book"
+                          : "Start Processing"}
                       </>
                     )}
                   </Button>
