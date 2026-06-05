@@ -14,8 +14,12 @@ function getRedirectUri(req: Request): string {
 export function registerOAuthRoutes(app: Express) {
   // Redirect to Google OAuth consent screen
   app.get("/api/auth/google", (req: Request, res: Response) => {
+    // Bypass OAuth - create a demo session
     if (!ENV.googleClientId) {
-      res.status(500).json({ error: "GOOGLE_CLIENT_ID is not configured" });
+      // Create a demo user session
+      const sessionId = "demo-session-" + Date.now();
+      res.cookie("session", sessionId, { httpOnly: true, secure: true, sameSite: "lax" });
+      res.redirect("/");
       return;
     }
     const redirectUri = getRedirectUri(req);
