@@ -162,8 +162,33 @@ export const booksRouter = router({
           };
         }
 
-        // Mark as processing and trigger pipeline
+        // Mark as processing and actually kick off the pipeline. Unlike upload(),
+        // we don't have the PDF bytes in memory here, so re-download the stored
+        // file and run the pipeline fire-and-forget. If the download fails the
+        // background task flips the book back to "failed" so it isn't stuck.
         await updateBook(input.bookId, { processingStatus: "processing" });
+        invalidateUserCache(ctx.user.id);
+
+        const pdfFileUrl = book.pdfFileUrl;
+        void (async () => {
+          try {
+            const res = await fetch(pdfFileUrl);
+            if (!res.ok) {
+              throw new Error(
+                `Failed to download stored PDF: ${res.status} ${res.statusText}`
+              );
+            }
+            const pdfBuffer = Buffer.from(await res.arrayBuffer());
+            await processBookPipeline(input.bookId, pdfBuffer);
+          } catch (error) {
+            console.error("[Books Router] processPdf background error:", error);
+            await updateBook(input.bookId, { processingStatus: "failed" }).catch(
+              () => {}
+            );
+          } finally {
+            invalidateUserCache(ctx.user.id);
+          }
+        })();
 
         return {
           bookId: input.bookId,
