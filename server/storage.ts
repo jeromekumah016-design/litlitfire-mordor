@@ -14,10 +14,7 @@ function getCloudinary() {
 }
 
 function keyToPublicId(relKey: string): string {
-  return relKey
-    .replace(/^\/+/, "")
-    .replace(/\.[^.]+$/, "")
-    .replace(/\s+/g, "-");
+  return relKey.replace(/^\/+/, "").replace(/\.[^.]+$/, "").replace(/\s+/g, "-");
 }
 
 function resourceType(contentType: string): "image" | "raw" | "video" {
@@ -26,26 +23,17 @@ function resourceType(contentType: string): "image" | "raw" | "video" {
   return "raw";
 }
 
-export async function storagePut(
-  relKey: string,
-  data: Buffer | Uint8Array | string,
-  contentType = "application/octet-stream"
-): Promise<{ key: string; url: string }> {
+export async function storagePut(relKey: string, data: Buffer | Uint8Array | string, contentType = "application/octet-stream"): Promise<{ key: string; url: string }> {
   const cld = getCloudinary();
   const publicId = keyToPublicId(relKey);
   const resType = resourceType(contentType);
-
   const url = await new Promise<string>((resolve, reject) => {
-    const stream = cld.uploader.upload_stream(
-      { public_id: publicId, resource_type: resType, overwrite: true },
-      (error, result) => {
-        if (error) return reject(error);
-        resolve(result!.secure_url);
-      }
-    );
+    const stream = cld.uploader.upload_stream({ public_id: publicId, resource_type: resType, overwrite: true }, (error, result) => {
+      if (error) return reject(error);
+      resolve(result!.secure_url);
+    });
     stream.end(Buffer.isBuffer(data) ? data : Buffer.from(data as any));
   });
-
   return { key: relKey, url };
 }
 
@@ -56,7 +44,15 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
   return { key: relKey, url };
 }
 
-export async function storageGetSignedUrl(relKey: string): Promise<string> {
-  const { url } = await storageGet(relKey);
+/**
+ * Returns a signed Cloudinary URL that expires after the given duration.
+ * FIX: Previously returned a plain unsigned URL. Now uses sign_url + auth_token
+ * so private Cloudinary assets are actually accessible.
+ */
+export async function storageGetSignedUrl(relKey: string, expiresInSeconds = 3600): Promise<string> {
+  const cld = getCloudinary();
+  const publicId = keyToPublicId(relKey);
+  const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds;
+  const url = cld.url(publicId, { sign_url: true, auth_token: { duration: expiresInSeconds, expiration: expiresAt } });
   return url;
 }
