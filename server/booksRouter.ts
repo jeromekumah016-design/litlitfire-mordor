@@ -123,6 +123,10 @@ export const booksRouter = router({
         };
       } catch (error) {
         console.error("[Books Router] Upload error:", error);
+        // Preserve deliberate client errors (BAD_REQUEST for oversized/too-many
+        // pages, the explicit INTERNAL_SERVER_ERROR for a null book) instead of
+        // flattening every failure into a generic 500 with the wrong code.
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: error instanceof Error ? error.message : "Failed to upload PDF",
