@@ -29,6 +29,20 @@ export interface PipelineProgress {
 }
 
 /**
+ * Thrown by a page-processing step that has *already* persisted an error row
+ * (and scheduled a retry) for the page. The function-level catch uses this to
+ * avoid inserting a second, duplicate error row for the same page.
+ */
+class PageRecordedError extends Error {
+  readonly original: unknown;
+  constructor(original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = "PageRecordedError";
+    this.original = original;
+  }
+}
+
+/**
  * Extract character names from text using simple heuristics
  */
 function extractCharactersFromText(text: string): string[] {
@@ -163,8 +177,10 @@ async function processPagePipelineWithContext(
           "Image generation error - scheduled for automatic retry"
         );
       }
-      
-      throw error;
+
+      // Error row + retry already persisted above — signal the outer catch
+      // not to insert a duplicate error row for this page.
+      throw new PageRecordedError(error);
     }
 
     // Step 5: Save to database
@@ -193,6 +209,12 @@ async function processPagePipelineWithContext(
 
     return page;
   } catch (error) {
+    // The image-generation step already recorded an error row + retry; don't
+    // create a second one — just propagate so the loop counts the failure.
+    if (error instanceof PageRecordedError) {
+      throw error;
+    }
+
     console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
 
     // Save error state to database
@@ -287,8 +309,10 @@ export async function processPagePipeline(
           "Image generation error - scheduled for automatic retry"
         );
       }
-      
-      throw error;
+
+      // Error row + retry already persisted above — signal the outer catch
+      // not to insert a duplicate error row for this page.
+      throw new PageRecordedError(error);
     }
 
     // Step 5: Save to database
@@ -317,6 +341,12 @@ export async function processPagePipeline(
 
     return page;
   } catch (error) {
+    // The image-generation step already recorded an error row + retry; don't
+    // create a second one — just propagate so the loop counts the failure.
+    if (error instanceof PageRecordedError) {
+      throw error;
+    }
+
     console.error(`[Pipeline] Error processing page ${pageNumber}:`, error);
 
     // Save error state to database
