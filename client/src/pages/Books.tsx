@@ -36,8 +36,25 @@ export default function Books() {
     },
   });
 
+  const deleteBookMutation = trpc.books.delete.useMutation({
+    onSuccess: (data) => {
+      toast.success("Book deleted");
+      if (selectedBookId === data.bookId) {
+        setSelectedBookId(null);
+      }
+      booksQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Delete failed: ${error.message}`);
+    },
+  });
+
   const handleProcessPdf = (bookId: number) => {
     processPdfMutation.mutate({ bookId });
+  };
+
+  const handleDeleteBook = (bookId: number) => {
+    deleteBookMutation.mutate({ bookId });
   };
 
   const handleViewBook = (bookId: number) => {
@@ -252,10 +269,8 @@ export default function Books() {
                     processingStatus={book.processingStatus}
                     createdAt={book.createdAt}
                     onView={() => handleViewBook(book.id)}
-                    onDelete={() => {
-                      toast.success(`Book deleted`);
-                      booksQuery.refetch();
-                    }}
+                    onRetry={() => handleProcessPdf(book.id)}
+                    onDelete={() => handleDeleteBook(book.id)}
                   />
                 ))}
             </div>

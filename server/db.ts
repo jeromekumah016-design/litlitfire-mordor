@@ -154,6 +154,14 @@ export async function getBookPages(bookId: number): Promise<Page[]> {
   return db.select().from(pages).where(eq(pages.bookId, bookId)).orderBy(pages.pageNumber);
 }
 
+export async function deleteBook(bookId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  // pages (and processing/retry rows referencing the book) cascade via the
+  // onDelete: "cascade" FK on pages.bookId.
+  await db.delete(books).where(eq(books.id, bookId));
+}
+
 export async function updatePage(pageId: number, updates: Partial<Page>): Promise<void> {
   const db = await getDb();
   if (!db) return;

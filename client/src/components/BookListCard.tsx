@@ -11,6 +11,7 @@ interface BookListCardProps {
   createdAt: Date;
   onDelete?: (id: number) => void;
   onView?: (id: number) => void;
+  onRetry?: (id: number) => void;
 }
 
 /**
@@ -26,6 +27,7 @@ export const BookListCard = memo(function BookListCard({
   createdAt,
   onDelete,
   onView,
+  onRetry,
 }: BookListCardProps) {
   const getStatusColor = () => {
     switch (processingStatus) {
@@ -144,8 +146,9 @@ export const BookListCard = memo(function BookListCard({
 
         {processingStatus === "failed" && (
           <button
-            className="flex-1 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors text-sm font-medium"
-            disabled
+            onClick={() => onRetry?.(id)}
+            className="flex-1 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
+            disabled={!onRetry}
           >
             Retry
           </button>

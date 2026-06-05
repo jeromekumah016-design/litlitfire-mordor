@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
-import { createBook, getUserBooks, getBook, getBookPages, updateBook } from "./db";
+import { createBook, getUserBooks, getBook, getBookPages, updateBook, deleteBook } from "./db";
 import { getPDFMetadata } from "./pdfService";
 import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
@@ -395,6 +395,38 @@ export const booksRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to fetch progress",
+        });
+      }
+    }),
+
+  /**
+   * Delete a book (and, via cascade, its pages)
+   */
+  delete: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const book = await getBook(input.bookId);
+        if (!book) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        }
+        if (book.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have permission to delete this book",
+          });
+        }
+
+        await deleteBook(input.bookId);
+        invalidateUserCache(ctx.user.id);
+
+        return { success: true, bookId: input.bookId };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        console.error("[Books Router] Delete error:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "Failed to delete book",
         });
       }
     }),
