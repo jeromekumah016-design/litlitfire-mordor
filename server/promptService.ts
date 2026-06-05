@@ -1,4 +1,5 @@
 import { invokeLLM } from "./_core/llm";
+import { parseLlmJson } from "./llmJson";
 
 export interface GeneratedPrompt {
   prompt: string;
@@ -307,7 +308,7 @@ ${fullScan}`,
     if (!content) return null;
 
     const contentStr = typeof content === "string" ? content : JSON.stringify(content);
-    const ctx = JSON.parse(contentStr) as StoryContext;
+    const ctx = parseLlmJson<StoryContext>(contentStr);
 
     console.log(
       `[PromptService] Visual bible built: ${ctx.characters.length} characters, ` +
@@ -508,7 +509,7 @@ Return JSON:
     if (!content) throw new Error("No response from LLM");
 
     const contentStr = typeof content === "string" ? content : JSON.stringify(content);
-    const parsed = JSON.parse(contentStr);
+    const parsed = parseLlmJson<GeneratedPrompt>(contentStr);
     return { prompt: parsed.prompt, style: parsed.style, mood: parsed.mood };
   } catch (error) {
     console.error("Error generating image prompt:", error);
