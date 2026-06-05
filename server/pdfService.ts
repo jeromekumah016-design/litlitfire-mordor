@@ -26,13 +26,16 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 // === CRITICAL: Configure worker for server-side usage ===
 // Use file:// URL for Node.js ESM loader compatibility
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const workerPath = join(__dirname, '../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerPath;
+// pdfjs's ESM worker loader requires a URL with a file:// scheme. A raw
+// absolute path works on POSIX but fails on Windows ("Received protocol 'c:'"),
+// so always convert to a file:// URL.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
 export interface ExtractedPage {
   pageNumber: number;
