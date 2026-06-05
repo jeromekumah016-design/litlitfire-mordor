@@ -210,12 +210,10 @@ const normalizeToolChoice = (
 };
 
 const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+  `${ENV.openAiBaseUrl.replace(/\/$/, "")}/v1/chat/completions`;
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
+  if (!ENV.openAiApiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
 };
@@ -280,7 +278,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: ENV.llmModel,
     messages: messages.map(normalizeMessage),
   };
 
@@ -296,10 +294,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
-  }
+  const requestedMaxTokens = params.maxTokens ?? params.max_tokens;
+  payload.max_tokens =
+    requestedMaxTokens && requestedMaxTokens > 0
+      ? requestedMaxTokens
+      : ENV.llmMaxTokens;
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
@@ -316,7 +315,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${ENV.openAiApiKey}`,
     },
     body: JSON.stringify(payload),
   });

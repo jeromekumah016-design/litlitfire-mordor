@@ -12,6 +12,13 @@ export const ENV = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   // OpenAI
   openAiApiKey: process.env.OPENAI_API_KEY ?? "",
+  openAiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com",
+  // LLM model used by invokeLLM for prompt/story-context generation
+  llmModel: process.env.LLM_MODEL ?? "gpt-4o-mini",
+  llmMaxTokens: Number(process.env.LLM_MAX_TOKENS ?? "4096"),
+  // Image generation model + size
+  imageModel: process.env.IMAGE_MODEL ?? "dall-e-3",
+  imageSize: process.env.IMAGE_SIZE ?? "1024x1024",
   // Cloudinary
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",

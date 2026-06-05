@@ -19,7 +19,10 @@ let _openai: OpenAI | null = null;
 function getOpenAI() {
   if (!_openai) {
     if (!ENV.openAiApiKey) throw new Error("OPENAI_API_KEY is not configured");
-    _openai = new OpenAI({ apiKey: ENV.openAiApiKey });
+    _openai = new OpenAI({
+      apiKey: ENV.openAiApiKey,
+      baseURL: `${ENV.openAiBaseUrl.replace(/\/$/, "")}/v1`,
+    });
   }
   return _openai;
 }
@@ -30,10 +33,10 @@ export async function generateImage(
   const openai = getOpenAI();
 
   const response = await openai.images.generate({
-    model: "dall-e-3",
+    model: ENV.imageModel,
     prompt: options.prompt.slice(0, 4000),
     n: 1,
-    size: "1024x1024",
+    size: ENV.imageSize as "1024x1024" | "1792x1024" | "1024x1792",
     response_format: "b64_json",
   });
 
