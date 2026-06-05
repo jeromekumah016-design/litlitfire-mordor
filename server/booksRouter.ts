@@ -267,10 +267,16 @@ export const booksRouter = router({
     .input(z.object({ bookId: z.number() }))
     .query(async ({ input, ctx }) => {
       try {
-        // Check cache first
+        // Only serve cache for books in a terminal state. While a book is still
+        // pending/processing its pages change continuously, so a cached response
+        // would mask live progress and leave the gallery stale for up to the TTL.
         const cacheKey = getCacheKey(ctx.user.id, `books.getDetails.${input.bookId}`);
-        const cached = getFromCache(cacheKey);
-        if (cached) {
+        const cached = getFromCache<{ processingStatus: string }>(cacheKey);
+        if (
+          cached &&
+          (cached.processingStatus === "completed" ||
+            cached.processingStatus === "failed")
+        ) {
           return cached;
         }
 
@@ -315,8 +321,13 @@ export const booksRouter = router({
           createdAt: book.createdAt,
         };
 
-        // Store in cache
-        setInCache(cacheKey, result);
+        // Cache only terminal results — see the note at the cache read above.
+        if (
+          result.processingStatus === "completed" ||
+          result.processingStatus === "failed"
+        ) {
+          setInCache(cacheKey, result);
+        }
         return result;
       } catch (error) {
         console.error("[Books Router] Get details error:", error);
