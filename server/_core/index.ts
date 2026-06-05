@@ -8,6 +8,8 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { startRetryWorker, stopRetryWorker } from "../retryWorker";
+import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -61,6 +63,22 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // Start the automatic retry worker so failed pages scheduled for retry are
+  // actually reprocessed. Without this, nextRetryAt is set but never polled.
+  startRetryWorker({
+    enabled: ENV.retryWorkerEnabled,
+    pollIntervalMs: ENV.retryWorkerIntervalMs,
+    maxConcurrentRetries: 3,
+  });
+
+  const shutdown = (signal: string) => {
+    console.log(`Received ${signal}, shutting down gracefully...`);
+    stopRetryWorker();
+    server.close(() => process.exit(0));
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 startServer().catch(console.error);

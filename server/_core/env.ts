@@ -19,6 +19,9 @@ export const ENV = {
   // Image generation model + size
   imageModel: process.env.IMAGE_MODEL ?? "dall-e-3",
   imageSize: process.env.IMAGE_SIZE ?? "1024x1024",
+  // Automatic retry worker for failed pages
+  retryWorkerEnabled: (process.env.RETRY_WORKER_ENABLED ?? "true") !== "false",
+  retryWorkerIntervalMs: Number(process.env.RETRY_WORKER_INTERVAL_MS ?? "30000"),
   // Cloudinary
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",
