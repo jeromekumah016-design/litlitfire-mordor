@@ -2,17 +2,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { desc, inArray, eq } from "drizzle-orm";
 import {
-  InsertUser,
-  users,
-  books,
-  pages,
-  processingJobs,
-  type InsertBook,
-  type Book,
-  type InsertPage,
-  type Page,
-  type InsertProcessingJob,
-  type ProcessingJob,
+  InsertUser, users, books, pages, processingJobs,
+  type InsertBook, type Book, type InsertPage, type Page,
+  type InsertProcessingJob, type ProcessingJob,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -36,43 +28,22 @@ export async function getDb() {
 
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
-
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
+  if (!db) { console.warn("[Database] Cannot upsert user: database not available"); return; }
 
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
-
   const textFields = ["name", "email", "loginMethod"] as const;
   for (const field of textFields) {
-    if (user[field] !== undefined) {
-      values[field] = user[field] ?? null;
-      updateSet[field] = user[field] ?? null;
-    }
+    if (user[field] !== undefined) { values[field] = user[field] ?? null; updateSet[field] = user[field] ?? null; }
   }
-
-  if (user.lastSignedIn !== undefined) {
-    values.lastSignedIn = user.lastSignedIn;
-    updateSet.lastSignedIn = user.lastSignedIn;
-  }
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
-  }
-
+  if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
+  if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
+  else if (user.openId === ENV.ownerOpenId) { values.role = "admin"; updateSet.role = "admin"; }
   if (!values.lastSignedIn) values.lastSignedIn = new Date();
   if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
 
-  await db
-    .insert(users)
-    .values(values)
-    .onConflictDoUpdate({ target: users.openId, set: updateSet });
+  await db.insert(users).values(values).onConflictDoUpdate({ target: users.openId, set: updateSet });
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -152,111 +123,76 @@ export async function updateProcessingJob(jobId: number, updates: Partial<Proces
   await db.update(processingJobs).set(updates).where(eq(processingJobs.id, jobId));
 }
 
+// ---------------------------------------------------------------------------
 // Dashboard Statistics Queries
+// ---------------------------------------------------------------------------
+
 export async function getDashboardStats(userId: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const userBooks = await db
-    .select()
-    .from(books)
-    .where(eq(books.userId, userId));
-
+  const userBooks = await db.select().from(books).where(eq(books.userId, userId));
   const totalBooks = userBooks.length;
-  const completedBooks = userBooks.filter(b => b.processingStatus === 'completed').length;
-  const processingBooks = userBooks.filter(b => b.processingStatus === 'processing').length;
-  const failedBooks = userBooks.filter(b => b.processingStatus === 'failed').length;
+  const completedBooks = userBooks.filter((b) => b.processingStatus === "completed").length;
+  const processingBooks = userBooks.filter((b) => b.processingStatus === "processing").length;
+  const failedBooks = userBooks.filter((b) => b.processingStatus === "failed").length;
 
-  // Get page statistics
-  let totalPages = 0;
-  let completedPages = 0;
-  let failedPages = 0;
+  const bookIds = userBooks.map((b) => b.id);
 
-  for (const book of userBooks) {
-    const bookPages = await db
-      .select()
-      .from(pages)
-      .where(eq(pages.bookId, book.id));
+  // FIX: single query instead of one per book (N+1 eliminated)
+  const allPages = bookIds.length > 0
+    ? await db.select().from(pages).where(inArray(pages.bookId, bookIds))
+    : [];
 
-    totalPages += bookPages.length;
-    completedPages += bookPages.filter(p => p.processingStatus === 'done').length;
-    failedPages += bookPages.filter(p => p.processingStatus === 'error').length;
-  }
+  const totalPages = allPages.length;
+  const completedPages = allPages.filter((p) => p.processingStatus === "done").length;
+  const failedPages = allPages.filter((p) => p.processingStatus === "error").length;
 
   return {
-    totalBooks,
-    completedBooks,
-    processingBooks,
-    failedBooks,
-    totalPages,
-    completedPages,
-    failedPages,
+    totalBooks, completedBooks, processingBooks, failedBooks,
+    totalPages, completedPages, failedPages,
     successRate: totalPages > 0 ? Math.round((completedPages / totalPages) * 100) : 0,
   };
 }
 
-export async function getRecentBooks(userId: number, limit: number = 10) {
+export async function getRecentBooks(userId: number, limit = 10) {
   const db = await getDb();
   if (!db) return [];
-
-  return db
-    .select()
-    .from(books)
-    .where(eq(books.userId, userId))
-    .orderBy(desc(books.createdAt))
-    .limit(limit);
+  return db.select().from(books).where(eq(books.userId, userId)).orderBy(desc(books.createdAt)).limit(limit);
 }
 
 export async function getProcessingMetrics(userId: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const userBooks = await db
-    .select()
-    .from(books)
-    .where(eq(books.userId, userId));
-
-  const bookIds = userBooks.map(b => b.id);
+  const userBooks = await db.select().from(books).where(eq(books.userId, userId));
+  const bookIds = userBooks.map((b) => b.id);
 
   if (bookIds.length === 0) {
-    return {
-      avgProcessingTime: 0,
-      totalProcessingTime: 0,
-      pagesByStatus: { done: 0, error: 0, processing: 0, pending: 0 },
-      recentErrors: [],
-    };
+    return { avgProcessingTime: 0, totalProcessingTime: 0, pagesByStatus: { done: 0, error: 0, processing: 0, pending: 0 }, recentErrors: [] };
   }
 
-  const allPages = await db
-    .select()
-    .from(pages)
-    .where(inArray(pages.bookId, bookIds));
+  const allPages = await db.select().from(pages).where(inArray(pages.bookId, bookIds));
 
   const pagesByStatus = {
-    done: allPages.filter(p => p.processingStatus === 'done').length,
-    error: allPages.filter(p => p.processingStatus === 'error').length,
-    processing: allPages.filter(p => p.processingStatus === 'processing').length,
-    pending: allPages.filter(p => p.processingStatus === 'pending').length,
+    done: allPages.filter((p) => p.processingStatus === "done").length,
+    error: allPages.filter((p) => p.processingStatus === "error").length,
+    processing: allPages.filter((p) => p.processingStatus === "processing").length,
+    pending: allPages.filter((p) => p.processingStatus === "pending").length,
   };
 
   const recentErrors = allPages
-    .filter(p => p.errorMessage && p.processingStatus === 'error')
+    .filter((p) => p.errorMessage && p.processingStatus === "error")
     .slice(0, 5)
-    .map(p => ({
-      pageId: p.id,
-      pageNumber: p.pageNumber,
-      error: p.errorMessage,
-      timestamp: p.updatedAt,
-    }));
+    .map((p) => ({ pageId: p.id, pageNumber: p.pageNumber, error: p.errorMessage, timestamp: p.updatedAt }));
 
-  // Calculate average processing time for completed pages
-  const completedPages = allPages.filter(p => p.processingStatus === 'done');
+  const completedPages = allPages.filter((p) => p.processingStatus === "done");
   const avgProcessingTime = completedPages.length > 0
     ? completedPages.reduce((sum, p) => {
         const createdAt = p.createdAt?.getTime() || 0;
         const updatedAt = p.updatedAt?.getTime() || 0;
         return sum + (updatedAt - createdAt);
-      }, 0) / completedPages.length / 1000 // Convert to seconds
+      }, 0) / completedPages.length / 1000
     : 0;
 
   return {
@@ -270,14 +206,8 @@ export async function getProcessingMetrics(userId: number) {
 export async function getLibraryOverview(userId: number) {
   const db = await getDb();
   if (!db) return null;
-
   const stats = await getDashboardStats(userId);
   const recentBooks = await getRecentBooks(userId, 5);
   const metrics = await getProcessingMetrics(userId);
-
-  return {
-    stats,
-    recentBooks,
-    metrics,
-  };
+  return { stats, recentBooks, metrics };
 }
