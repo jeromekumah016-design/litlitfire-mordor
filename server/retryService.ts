@@ -1,4 +1,4 @@
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, lt, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { pages, retryHistory } from "../drizzle/schema";
 
@@ -128,6 +128,9 @@ export async function getPagesReadyForRetry(
     const conditions = [
       eq(pages.processingStatus, "error"),
       lt(pages.nextRetryAt, now),
+      // Exclude pages that have already exhausted their retry budget so the
+      // worker never loops on them regardless of how nextRetryAt is set.
+      sql`${pages.retryCount} < ${pages.maxRetries}`,
     ];
 
     if (bookId) {

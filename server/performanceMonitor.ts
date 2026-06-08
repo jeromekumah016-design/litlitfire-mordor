@@ -65,13 +65,17 @@ class PerformanceMonitor {
     const durations = metricsArray.map((m) => m.duration).sort((a, b) => a - b);
     const errorCount = metricsArray.filter((m) => m.status === "error").length;
 
+    // Nearest-rank percentile: rank = ceil(p * N), index (0-based) = rank - 1.
+    // Math.floor would give rank - 1 when p*N is an integer, returning the wrong element.
+    const p95idx = Math.min(Math.ceil(durations.length * 0.95) - 1, durations.length - 1);
+    const p99idx = Math.min(Math.ceil(durations.length * 0.99) - 1, durations.length - 1);
     return {
       count: metricsArray.length,
       avgDuration: durations.reduce((a, b) => a + b, 0) / durations.length,
       minDuration: durations[0],
       maxDuration: durations[durations.length - 1],
-      p95Duration: durations[Math.floor(durations.length * 0.95)],
-      p99Duration: durations[Math.floor(durations.length * 0.99)],
+      p95Duration: durations[p95idx],
+      p99Duration: durations[p99idx],
       errorRate: errorCount / metricsArray.length,
     };
   }

@@ -8,6 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { startRetryWorker, stopRetryWorker } from "../retryWorker";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,9 +32,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Body limit must cover base64-encoded PDFs up to 100 MB (≈137 MB base64).
+  app.use(express.json({ limit: "150mb" }));
+  app.use(express.urlencoded({ limit: "150mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   // tRPC API
@@ -61,6 +62,21 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // Start the automatic retry worker (skipped during tests)
+  const retryWorkerEnabled = process.env.RETRY_WORKER_ENABLED !== "false";
+  const retryIntervalMs = parseInt(process.env.RETRY_WORKER_INTERVAL_MS || "30000");
+  if (retryWorkerEnabled && process.env.NODE_ENV !== "test") {
+    startRetryWorker({ maxConcurrentRetries: 3, pollIntervalMs: retryIntervalMs, enabled: true });
+  }
+
+  // Graceful shutdown
+  const shutdown = () => {
+    stopRetryWorker();
+    server.close(() => process.exit(0));
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 startServer().catch(console.error);

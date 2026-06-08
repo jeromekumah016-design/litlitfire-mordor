@@ -125,34 +125,23 @@ export class ConnectionPoolManager {
       return { id: `conn-${this.activeConnections}`, isNew: false };
     }
 
-    // Queue request
+    // Queue request. NOTE: this simulation always times out — the wait Promise
+    // only ever rejects. Real pooling would use a waiter queue that
+    // releaseConnection() drains when a slot becomes free.
     this.waitingRequests++;
-
-    // Simulate wait with timeout
-    const timeout = new Promise((_, reject) =>
-      setTimeout(
-        () => reject(new Error("Connection acquire timeout")),
-        this.config.acquireTimeoutMs
-      )
-    );
-
     try {
-      await timeout;
+      await new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Connection acquire timeout")),
+          this.config.acquireTimeoutMs
+        )
+      );
     } catch (error) {
       this.waitingRequests--;
       this.stats.timeoutCount++;
       this.stats.errorCount++;
       throw error;
     }
-
-    this.waitingRequests--;
-    this.activeConnections++;
-    this.stats.acquireCount++;
-
-    const acquireTime = Date.now() - startTime;
-    this.stats.totalAcquireTimeMs += acquireTime;
-
-    return { id: `conn-${this.activeConnections}`, isNew: false };
   }
 
   /**

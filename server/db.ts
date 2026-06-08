@@ -53,6 +53,12 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+export async function deleteBook(bookId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(books).where(eq(books.id, bookId));
+}
+
 export async function createBook(book: InsertBook): Promise<Book | null> {
   const db = await getDb();
   if (!db) return null;

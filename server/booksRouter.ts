@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
-import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage } from "./db";
+import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage, deleteBook } from "./db";
 import { getPDFMetadata } from "./pdfService";
 import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
@@ -206,7 +206,10 @@ export const booksRouter = router({
         if (failedPages.length === 0) return { success: true, message: "No failed pages to retry", retriedCount: 0 };
 
         for (const page of failedPages) {
-          await updatePage(page.id, { processingStatus: "pending", errorMessage: null, retryCount: (page.retryCount || 0) + 1 });
+          // Reset retryCount to 0 so each page gets a fresh retry budget.
+          // Incrementing it here would permanently exhaust auto-retry on pages
+          // that have already hit maxRetries, making them unrecoverable.
+          await updatePage(page.id, { processingStatus: "pending", errorMessage: null, retryCount: 0 });
         }
         await updateBook(input.bookId, { processingStatus: "processing" });
         invalidateUserCache(userId);
@@ -226,8 +229,25 @@ export const booksRouter = router({
       }
     }),
 
+  delete: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const userId = ctx.user.id;
+        const book = await getBook(input.bookId);
+        if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to delete this book" });
+        await deleteBook(input.bookId);
+        invalidateUserCache(userId);
+        return { success: true, bookId: input.bookId };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Failed to delete book" });
+      }
+    }),
+
   calculatePrice: protectedProcedure
-    .input(z.object({ pageCount: z.number().min(1) }))
+    .input(z.object({ pageCount: z.number().int().min(1) }))
     .query(({ input }) => { const price = calculatePrice(input.pageCount); return { pageCount: input.pageCount, price, currency: "USD" }; }),
 
   getDashboardStats: protectedProcedure.query(async ({ ctx }) => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { publicProcedure, protectedProcedure } from "./_core/trpc";
 import {
   getProgressTracker,
@@ -92,7 +93,7 @@ export const progressRouter = {
     .mutation(({ input: bookId }) => {
       const tracker = getProgressTracker(bookId);
       if (!tracker) {
-        throw new Error("Processing not found");
+        throw new TRPCError({ code: "NOT_FOUND", message: "Processing not found" });
       }
 
       tracker.cancel();

@@ -40,16 +40,25 @@ export class StreamingUploadHandler {
 
     return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout | null = null;
+      let settled = false;
+
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        fn();
+      };
 
       const resetTimeout = () => {
         if (timeout) clearTimeout(timeout);
         timeout = setTimeout(() => {
           stream.destroy();
-          reject(new Error("Streaming upload timeout"));
+          settle(() => reject(new Error("Streaming upload timeout")));
         }, this.timeout);
       };
 
       stream.on("data", async (chunk: Buffer) => {
+        if (settled) return;
         resetTimeout();
 
         try {
@@ -65,18 +74,16 @@ export class StreamingUploadHandler {
           }
         } catch (error) {
           stream.destroy();
-          reject(error);
+          settle(() => reject(error));
         }
       });
 
       stream.on("end", () => {
-        if (timeout) clearTimeout(timeout);
-        resolve(chunks);
+        settle(() => resolve(chunks));
       });
 
       stream.on("error", (error) => {
-        if (timeout) clearTimeout(timeout);
-        reject(error);
+        settle(() => reject(error));
       });
 
       resetTimeout();
@@ -155,6 +162,7 @@ export class ResumableUpload {
    * Get progress percentage
    */
   getProgress(): number {
+    if (this.totalChunks === 0) return 100; // empty upload is immediately complete
     return (this.uploadedChunks.size / this.totalChunks) * 100;
   }
 

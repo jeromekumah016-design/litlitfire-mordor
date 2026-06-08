@@ -136,6 +136,9 @@ async function retryFailedPage(page: typeof pages.$inferSelect) {
 
     // Fetch PDF from storage
     const pdfUrl = book.pdfFileUrl;
+    if (!pdfUrl) {
+      throw new Error(`Book ${page.bookId} has no PDF URL — cannot retry`);
+    }
     const response = await fetch(pdfUrl);
 
     if (!response.ok) {

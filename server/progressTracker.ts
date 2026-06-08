@@ -131,8 +131,8 @@ export class ProgressTracker extends EventEmitter {
     pageStatus.endTime = Date.now();
     pageStatus.duration = pageStatus.endTime - (pageStatus.startTime || 0);
 
-    // Track duration for estimation
-    if (pageStatus.duration) {
+    // Track duration for estimation (include 0ms — falsy guard was wrong)
+    if (pageStatus.duration != null) {
       this.historicalDurations.push(pageStatus.duration);
     }
 
@@ -211,7 +211,7 @@ export class ProgressTracker extends EventEmitter {
    * Get current page being processed
    */
   private getCurrentPage(): number {
-    let currentPage = this.totalPages;
+    let currentPage = 0;
     this.pageStatuses.forEach((status, pageNum) => {
       if (status.status === "processing") {
         currentPage = pageNum;
@@ -310,9 +310,12 @@ export function getOrCreateProgressTracker(bookId: number, totalPages: number): 
     const tracker = new ProgressTracker(bookId, totalPages);
     progressTrackers.set(bookId, tracker);
 
-    // Auto-cleanup after 24 hours
+    // Auto-cleanup after 24 hours. Capture the instance so the timer only
+    // deletes this specific tracker, not a newer one created for the same bookId.
     setTimeout(() => {
-      progressTrackers.delete(bookId);
+      if (progressTrackers.get(bookId) === tracker) {
+        progressTrackers.delete(bookId);
+      }
     }, 24 * 60 * 60 * 1000);
   }
 

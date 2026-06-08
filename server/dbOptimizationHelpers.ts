@@ -3,7 +3,7 @@
  * Provides caching, pagination, and query optimization utilities
  */
 
-import { eq, desc, asc, sql } from "drizzle-orm";
+import { eq, desc, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db";
 import { books, pages } from "../drizzle/schema";
 
@@ -297,7 +297,7 @@ export async function batchGetBooks(
     const batchData = await database
       .select()
       .from(books)
-      .where(eq(books.id, uncachedIds[0])); // Simplified for demo
+      .where(inArray(books.id, uncachedIds));
 
     for (const book of batchData) {
       if (useCache) {

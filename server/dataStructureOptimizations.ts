@@ -275,10 +275,10 @@ export class CircularBuffer<T> {
   /**
    * Get all items in order
    */
-  toArray(): (T | undefined)[] {
-    const result: (T | undefined)[] = [];
+  toArray(): T[] {
+    const result: T[] = [];
     for (let i = 0; i < this.size; i++) {
-      result.push(this.buffer[(this.head + i) % this.capacity]);
+      result.push(this.buffer[(this.head + i) % this.capacity] as T);
     }
     return result;
   }
