@@ -56,8 +56,8 @@ export default function Books() {
             <h1 className="text-4xl literary-heading text-primary">{(book as any).title}</h1>
           </div>
           <div className="flex gap-2">
-             <Button variant="ghost" size="icon" className="text-accent"><Eye className="h-5 w-5" /></Button>
-             <Button variant="ghost" size="icon" className="text-accent"><Image className="h-5 w-5" /></Button>
+             <Button variant="ghost" size="icon" className="text-accent" onClick={() => setLocation("/dashboard")} title="Library Dashboard"><Eye className="h-5 w-5" /></Button>
+             <Button variant="ghost" size="icon" className="text-accent" onClick={() => setLocation(`/gallery/${(book as any).id}`)} title="View Gallery"><Image className="h-5 w-5" /></Button>
           </div>
         </div>
 

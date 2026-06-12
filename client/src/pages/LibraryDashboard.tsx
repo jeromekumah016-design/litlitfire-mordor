@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,9 +24,11 @@ import {
   Zap,
   TrendingUp,
 } from "lucide-react";
+import { useLocation } from "wouter";
 
 export function LibraryDashboard() {
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [, setLocation] = useLocation();
 
   // Fetch dashboard data
   const { data: overview, isLoading: overviewLoading } =
@@ -276,7 +278,11 @@ export function LibraryDashboard() {
               recentBooks.map((book: any) => (
                 <div
                   key={book.id}
-                  className="p-4 bg-background/50 border border-accent/10 rounded-lg hover:border-accent/30 transition-colors"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setLocation("/books")}
+                  onKeyDown={(e) => e.key === "Enter" && setLocation("/books")}
+                  className="p-4 bg-background/50 border border-accent/10 rounded-lg hover:border-accent/30 transition-colors cursor-pointer"
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
