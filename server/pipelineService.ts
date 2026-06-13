@@ -141,7 +141,24 @@ export async function processPagePipeline(
       if (errorPage) await markPageForRetry(errorPage.id, bookId, `Image generation failed: ${errorMsg}`, "Image generation error - scheduled for automatic retry");
       throw error;
     }
-    const page = await createPage({ bookId, pageNumber, thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText, generatedPrompt: promptResult.prompt, generatedImageFileKey: generatedImageKey || undefined, generatedImageUrl: generatedImageUrl || undefined, processingStatus: "done" });
+    // Upsert: update the existing record if one exists (e.g. on retry), otherwise insert.
+    // This prevents duplicate page rows for the same bookId+pageNumber.
+    const allPages = await getBookPages(bookId);
+    const existingPage = allPages.find((p) => p.pageNumber === pageNumber);
+    let page: Page | null;
+    if (existingPage) {
+      await updatePage(existingPage.id, {
+        thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText,
+        generatedPrompt: promptResult.prompt,
+        generatedImageFileKey: generatedImageKey || undefined,
+        generatedImageUrl: generatedImageUrl || undefined,
+        processingStatus: "done",
+        errorMessage: null,
+      });
+      page = { ...existingPage, thumbnailFileKey: thumbnailKey, thumbnailUrl: thumbnailUrl ?? null, ocrText: ocrText ?? null, generatedPrompt: promptResult.prompt, generatedImageFileKey: generatedImageKey ?? null, generatedImageUrl: generatedImageUrl ?? null, processingStatus: "done", errorMessage: null };
+    } else {
+      page = await createPage({ bookId, pageNumber, thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText, generatedPrompt: promptResult.prompt, generatedImageFileKey: generatedImageKey || undefined, generatedImageUrl: generatedImageUrl || undefined, processingStatus: "done" });
+    }
     if (onProgress) onProgress({ bookId, totalPages: 0, processedPages: pageNumber, currentPage: pageNumber, status: "processing" });
     return page;
   } catch (error) {

@@ -87,7 +87,7 @@ export default function Books() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Price</p>
-                  <p className="font-medium">${((book as any).totalPrice / 100).toFixed(2)}</p>
+                  <p className="font-medium">${Number((book as any).totalPrice).toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>

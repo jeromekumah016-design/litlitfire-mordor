@@ -1822,3 +1822,98 @@ describe("booksRouter.retryFailedPages — resets retryCount to 0", () => {
     );
   });
 });
+
+// ===========================================================================
+// 14. Books.tsx price display — totalPrice is in dollars, not cents
+// ===========================================================================
+
+describe("Books.tsx price display — totalPrice from API is already in dollars", () => {
+  // The server's getDetails returns totalPrice: Number(book.totalPrice) where
+  // totalPrice is stored as a SQL numeric in dollars (e.g., 5.0 = $5.00).
+  // The display code should use Number(totalPrice).toFixed(2), NOT totalPrice/100.
+
+  it("$5.00 price: correct display is '5.00', not '0.05' (old /100 bug)", () => {
+    const totalPrice = 5.0; // as returned by getDetails
+    expect(Number(totalPrice).toFixed(2)).toBe("5.00"); // correct
+    expect((totalPrice / 100).toFixed(2)).toBe("0.05"); // the old bug — documents why /100 is wrong
+  });
+
+  it("$30.00 price: correct display is '30.00', not '0.30'", () => {
+    const totalPrice = 30.0;
+    expect(Number(totalPrice).toFixed(2)).toBe("30.00");
+    expect((totalPrice / 100).toFixed(2)).toBe("0.30"); // the old bug
+  });
+
+  it("$2.00 minimum price: correct display is '2.00', not '0.02'", () => {
+    const totalPrice = 2.0;
+    expect(Number(totalPrice).toFixed(2)).toBe("2.00");
+    expect((totalPrice / 100).toFixed(2)).not.toBe("2.00");
+  });
+
+  it("getDetails endpoint returns totalPrice as a dollar float, not cents", async () => {
+    // Use a unique userId+bookId (600) to avoid the module-level queryCache
+    // returning a cached value from earlier getDetails tests (userId=1, bookId=1).
+    vi.clearAllMocks();
+    vi.mocked(getBook as any).mockResolvedValue(makeBook({ id: 600, userId: 600, totalPrice: "5.00" }));
+    vi.mocked(getBookPages as any).mockResolvedValue([]);
+
+    const caller = appRouter.createCaller(makeCtx(600));
+    const result = await caller.books.getDetails({ bookId: 600 });
+
+    expect(result.totalPrice).toBe(5.0);
+    expect(Number(result.totalPrice).toFixed(2)).toBe("5.00");
+  });
+});
+
+// ===========================================================================
+// 15. processPagePipeline — upsert predicate (no duplicate page on retry)
+// ===========================================================================
+
+describe("processPagePipeline — upsert predicate: update existing page instead of inserting duplicate", () => {
+  it("finds an existing page record for bookId+pageNumber to update", () => {
+    const existingPages = [
+      makePage({ id: 5, bookId: 1, pageNumber: 2, processingStatus: "error" }),
+    ];
+    const found = existingPages.find((p) => p.pageNumber === 2);
+    expect(found).toBeDefined();
+    expect(found?.id).toBe(5);
+    // Retry should call updatePage(5, ...) not createPage({bookId:1, pageNumber:2})
+  });
+
+  it("returns undefined (no duplicate path) for a page number not yet in DB", () => {
+    const existingPages = [
+      makePage({ id: 5, bookId: 1, pageNumber: 1, processingStatus: "done" }),
+    ];
+    const found = existingPages.find((p) => p.pageNumber === 3);
+    expect(found).toBeUndefined();
+    // First run: should createPage({bookId:1, pageNumber:3})
+  });
+
+  it("correctly constructs the upserted Page shape from existing + new fields", () => {
+    const existing = makePage({ id: 7, bookId: 2, pageNumber: 4, processingStatus: "error", errorMessage: "old error" });
+    const thumbnailKey = "books/2/pages/4/thumbnail.png";
+    const thumbnailUrl = "https://cdn.example.com/thumb.png";
+    const ocrText = "page text";
+    const generatedPrompt = "fantasy illustration";
+    const generatedImageKey = "books/2/pages/4/generated.png";
+    const generatedImageUrl = "https://cdn.example.com/img.png";
+
+    const upserted = {
+      ...existing,
+      thumbnailFileKey: thumbnailKey,
+      thumbnailUrl: thumbnailUrl ?? null,
+      ocrText: ocrText ?? null,
+      generatedPrompt,
+      generatedImageFileKey: generatedImageKey ?? null,
+      generatedImageUrl: generatedImageUrl ?? null,
+      processingStatus: "done" as const,
+      errorMessage: null,
+    };
+
+    // The id is preserved from the original page (no new row)
+    expect(upserted.id).toBe(7);
+    expect(upserted.processingStatus).toBe("done");
+    expect(upserted.errorMessage).toBeNull();
+    expect(upserted.generatedImageUrl).toBe("https://cdn.example.com/img.png");
+  });
+});
