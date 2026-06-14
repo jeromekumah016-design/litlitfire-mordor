@@ -1,5 +1,14 @@
 # LiteralLiterature TODO
 
+## Scene-Based Illustration (multiple distinct images per book)
+- [x] scenePlanner.ts: select distinct illustration-worthy scenes (selectScenes)
+- [x] Deterministic fallback (one scene per meaningful page)
+- [x] generateScenePrompts: one prompt per scene using locked visual bible
+- [x] Unit tests (23) for dedupe / ranking / clamp / fallback / prompt pairing
+- [ ] Wire generateScenePrompts into processBookPipeline (behind a flag)
+- [ ] Schema for scene→image mapping (NEEDS JEROME: pages keyed by pageNumber)
+- [ ] Surface scene plan + rationale in DevModeDiagnostics / gallery
+
 ## Core Features
 
 ### 1. PDF Upload and Batch Processing
@@ -438,12 +447,4 @@
 - [x] Optimize thumbnail file sizes for S3 storage (PNG compression via canvas)
 
 ### Page Count Estimation
-- [x] Replace KB-based estimation with actual PDF metadata (pdfDocument.numPages)
-- [x] Use pdfjs-dist to read true page count (accurate metadata reading)
-- [x] Validate page count before processing starts (validation in extractPDFPages)
-
-### OCR Integration
-- [x] Ensure OCR is actually called in context-aware pipeline (real text extraction in extractPageText)
-- [x] Pass real extracted text to LLM prompts (text field now contains actual extracted content)
-- [x] Verify OCR results are used in image generation (text passed to promptService)
-- [x] Add OCR result validation and error handling (error handling with fallback to empty string)
+- [x] Replace KB-based estimation with actual PDF metadata 
