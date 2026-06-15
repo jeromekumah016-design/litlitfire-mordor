@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { unpackSceneOcrText } from "../../../shared/sceneMetadata";
 
 interface DevModeDiagnosticsProps {
   bookId: number;
@@ -148,7 +149,20 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
                     >
                       {page.processingStatus}
                     </Badge>
-                    <span className="font-medium">Page {page.pageNumber}</span>
+                    {(() => {
+                      const { metadata } = unpackSceneOcrText(page.ocrText);
+                      if (metadata) {
+                        return (
+                          <span className="font-medium">
+                            Scene {page.pageNumber}
+                            <span className="text-muted-foreground font-normal ml-1 text-sm">
+                              — {metadata.title}
+                            </span>
+                          </span>
+                        );
+                      }
+                      return <span className="font-medium">Page {page.pageNumber}</span>;
+                    })()}
                   </div>
                   {expandedPageId === page.id ? (
                     <ChevronUp className="w-4 h-4 text-muted-foreground" />
@@ -171,15 +185,41 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
                       </div>
                     )}
 
-                    {/* OCR Text */}
-                    {page.ocrText && (
-                      <div>
-                        <p className="text-sm font-medium mb-1">OCR Text:</p>
-                        <p className="text-xs text-muted-foreground bg-background p-2 rounded line-clamp-4">
-                          {page.ocrText}
-                        </p>
-                      </div>
-                    )}
+                    {/* OCR Text / Scene Info */}
+                    {page.ocrText && (() => {
+                      const { metadata, description } = unpackSceneOcrText(page.ocrText);
+                      if (metadata) {
+                        return (
+                          <div className="space-y-2">
+                            <div className="bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
+                              <p className="text-xs font-semibold text-amber-800">
+                                Scene {page.pageNumber}: {metadata.title}
+                              </p>
+                              <p className="text-xs text-amber-700">
+                                Source page {metadata.sourcePage} &middot; Importance {metadata.importance}/5
+                              </p>
+                              <p className="text-xs text-amber-600 italic">{metadata.rationale}</p>
+                            </div>
+                            {description && (
+                              <div>
+                                <p className="text-sm font-medium mb-1">Scene Description:</p>
+                                <p className="text-xs text-muted-foreground bg-background p-2 rounded line-clamp-4">
+                                  {description}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return (
+                        <div>
+                          <p className="text-sm font-medium mb-1">OCR Text:</p>
+                          <p className="text-xs text-muted-foreground bg-background p-2 rounded line-clamp-4">
+                            {page.ocrText}
+                          </p>
+                        </div>
+                      );
+                    })()}
 
                     {/* Generated Prompt */}
                     {page.generatedPrompt && (

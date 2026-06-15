@@ -9,6 +9,7 @@ import {
 } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
 import { generateScenePrompts, type ScenePrompt } from "./scenePlanner";
+import { packSceneOcrText } from "../shared/sceneMetadata";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 import {
@@ -279,6 +280,10 @@ async function processScene(
   scenePrompt: ScenePrompt
 ): Promise<Page | null> {
   const { scene } = scenePrompt;
+  const packedOcrText = packSceneOcrText(
+    { title: scene.title, rationale: scene.rationale, sourcePage: scene.sourcePage, importance: scene.importance },
+    scene.description
+  );
   console.log(`[Pipeline:Scenes] Scene ${ordinal} ("${scene.title}", source p.${scene.sourcePage}): thumbnail...`);
   const thumbnailBuffer = await generatePageThumbnail(pdfBuffer, scene.sourcePage, 1.0);
   const thumbnailKey = `books/${bookId}/scenes/${ordinal}/thumbnail.png`;
@@ -298,7 +303,7 @@ async function processScene(
     console.error(`[Pipeline:Scenes] Image generation failed for scene ${ordinal} ("${scene.title}"):`, errorMsg);
     const errorPage = await createPage({
       bookId, pageNumber: ordinal, thumbnailFileKey: thumbnailKey, thumbnailUrl,
-      ocrText: scene.description, generatedPrompt: scenePrompt.prompt,
+      ocrText: packedOcrText, generatedPrompt: scenePrompt.prompt,
       processingStatus: "error", errorMessage: `Image generation failed: ${errorMsg}`,
     });
     if (errorPage) await markPageForRetry(errorPage.id, bookId, `Image generation failed: ${errorMsg}`, "Scene image generation error - scheduled for automatic retry");
@@ -310,17 +315,17 @@ async function processScene(
   const existing = allPages.find((p) => p.pageNumber === ordinal);
   if (existing) {
     await updatePage(existing.id, {
-      thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText: scene.description,
+      thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText: packedOcrText,
       generatedPrompt: scenePrompt.prompt,
       generatedImageFileKey: generatedImageKey || undefined,
       generatedImageUrl: generatedImageUrl || undefined,
       processingStatus: "done", errorMessage: null,
     });
-    return { ...existing, thumbnailFileKey: thumbnailKey, thumbnailUrl: thumbnailUrl ?? null, ocrText: scene.description, generatedPrompt: scenePrompt.prompt, generatedImageFileKey: generatedImageKey ?? null, generatedImageUrl: generatedImageUrl ?? null, processingStatus: "done", errorMessage: null };
+    return { ...existing, thumbnailFileKey: thumbnailKey, thumbnailUrl: thumbnailUrl ?? null, ocrText: packedOcrText, generatedPrompt: scenePrompt.prompt, generatedImageFileKey: generatedImageKey ?? null, generatedImageUrl: generatedImageUrl ?? null, processingStatus: "done", errorMessage: null };
   }
   return createPage({
     bookId, pageNumber: ordinal, thumbnailFileKey: thumbnailKey, thumbnailUrl,
-    ocrText: scene.description, generatedPrompt: scenePrompt.prompt,
+    ocrText: packedOcrText, generatedPrompt: scenePrompt.prompt,
     generatedImageFileKey: generatedImageKey || undefined,
     generatedImageUrl: generatedImageUrl || undefined,
     processingStatus: "done",
