@@ -5,7 +5,7 @@
 - [x] Deterministic fallback (one scene per meaningful page)
 - [x] generateScenePrompts: one prompt per scene using locked visual bible
 - [x] Unit tests (23) for dedupe / ranking / clamp / fallback / prompt pairing
-- [ ] Wire generateScenePrompts into processBookPipeline (behind a flag)
+- [x] Wire generateScenePrompts into processBookPipeline (behind a flag)
 - [ ] Schema for scene→image mapping (NEEDS JEROME: pages keyed by pageNumber)
 - [ ] Surface scene plan + rationale in DevModeDiagnostics / gallery
 

@@ -16,4 +16,9 @@ export const ENV = {
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
+  // Feature flags
+  // When true, processBookPipeline plans MULTIPLE distinct scenes per book
+  // (scenePlanner) instead of a rigid one-image-per-page mapping. Defaults off
+  // to preserve existing behaviour.
+  sceneModeEnabled: process.env.SCENE_MODE_ENABLED === "true",
 };
