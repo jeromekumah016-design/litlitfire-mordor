@@ -7,7 +7,8 @@
 - [x] Unit tests (23) for dedupe / ranking / clamp / fallback / prompt pairing
 - [x] Wire generateScenePrompts into processBookPipeline (behind a flag)
 - [ ] Schema for scene→image mapping (NEEDS JEROME: pages keyed by pageNumber)
-- [ ] Surface scene plan + rationale in DevModeDiagnostics / gallery
+- [x] Surface scene plan + rationale in DevModeDiagnostics / gallery
+- [x] User-facing gallery shows scene title + source-page caption (shared/galleryImages, +5 tests)
 
 ## Core Features
 

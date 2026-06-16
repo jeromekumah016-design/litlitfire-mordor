@@ -14,6 +14,8 @@ interface Image {
   url: string;
   pageNumber: number;
   title?: string;
+  /** Optional secondary line, e.g. a scene's source page in scene mode. */
+  subtitle?: string;
 }
 
 interface ImageGalleryVirtualizedProps {
@@ -94,6 +96,9 @@ const ImageViewer = memo(
         <h3 className="text-lg font-semibold text-gray-900">
           {image.title || `Page ${image.pageNumber}`}
         </h3>
+        {image.subtitle && (
+          <p className="text-sm text-gray-500">{image.subtitle}</p>
+        )}
         <p className="text-sm text-gray-600">Zoom: {Math.round(zoom * 100)}%</p>
       </div>
     </div>
