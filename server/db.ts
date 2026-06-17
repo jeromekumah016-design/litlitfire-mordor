@@ -2,8 +2,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { desc, inArray, eq } from "drizzle-orm";
 import {
-  InsertUser, users, books, pages, processingJobs,
+  InsertUser, users, books, pages, scenes, processingJobs,
   type InsertBook, type Book, type InsertPage, type Page,
+  type InsertScene, type Scene,
   type InsertProcessingJob, type ProcessingJob,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -127,6 +128,36 @@ export async function updateProcessingJob(jobId: number, updates: Partial<Proces
   const db = await getDb();
   if (!db) return;
   await db.update(processingJobs).set(updates).where(eq(processingJobs.id, jobId));
+}
+
+// ---------------------------------------------------------------------------
+// Scene helpers (scene-mode books: multiple distinct images per book)
+// ---------------------------------------------------------------------------
+
+export async function createScene(scene: InsertScene): Promise<Scene | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(scenes).values(scene).returning();
+  return result[0] ?? null;
+}
+
+export async function getBookScenes(bookId: number): Promise<Scene[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(scenes).where(eq(scenes.bookId, bookId)).orderBy(scenes.sceneIndex);
+}
+
+export async function updateScene(sceneId: number, updates: Partial<Scene>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(scenes).set({ ...updates, updatedAt: new Date() }).where(eq(scenes.id, sceneId));
+}
+
+// Convenience: flip a book onto the scene write-path. Page-mode is the default.
+export async function setBookGenerationMode(bookId: number, mode: "page" | "scene"): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(books).set({ generationMode: mode as any }).where(eq(books.id, bookId));
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import {
   varchar,
   numeric,
   index,
+  uniqueIndex,
   serial,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -17,6 +18,7 @@ export const pageStatusEnum = pgEnum("page_processing_status", ["pending", "proc
 export const retryStatusEnum = pgEnum("retry_status", ["pending", "processing", "success", "failed"]);
 export const jobTypeEnum = pgEnum("job_type", ["extract_pdf", "ocr", "generate_prompt", "generate_image"]);
 export const jobStatusEnum = pgEnum("job_status", ["pending", "processing", "completed", "failed"]);
+export const generationModeEnum = pgEnum("generation_mode", ["page", "scene"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -44,6 +46,10 @@ export const books = pgTable(
     pdfFileUrl: varchar("pdfFileUrl", { length: 1024 }).notNull(),
     pageCount: integer("pageCount").notNull(),
     processingStatus: bookStatusEnum("processingStatus").default("pending").notNull(),
+    // Write-path selector: "page" = one image per page (pages table),
+    // "scene" = multiple distinct scenes per book (scenes table). Controls
+    // which table the pipeline writes to. No dual writes; no synthetic rows.
+    generationMode: generationModeEnum("generationMode").default("page").notNull(),
     totalPrice: numeric("totalPrice", { precision: 10, scale: 2 }).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -87,6 +93,57 @@ export const pages = pgTable(
 
 export type Page = typeof pages.$inferSelect;
 export type InsertPage = typeof pages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Scenes: dedicated storage for scene-mode books (multiple distinct images per
+// book). Replaces the interim approach of writing synthetic page rows. Captured
+// at generation time while the prompt, narrative chunk, and scene boundaries are
+// still in hand -- structured and lossless, not packed into ocrText strings.
+// OCR transcription stays decoupled from image generation: the planner produces
+// the scene + prompt, the pipeline renders it; this table just records the result.
+// ---------------------------------------------------------------------------
+export const scenes = pgTable(
+  "scenes",
+  {
+    id: serial("id").primaryKey(),
+    bookId: integer("bookId").notNull().references(() => books.id, { onDelete: "cascade" }),
+    // 0-based ordering of the scene within the book (reading order).
+    sceneIndex: integer("sceneIndex").notNull(),
+    // The real scene title (e.g. "The parting of the sea") -- never "Page N".
+    title: varchar("title", { length: 255 }).notNull(),
+    // Why this moment was chosen (dev-mode transparency).
+    rationale: text("rationale"),
+    // 1-based source book page the scene was primarily drawn from.
+    sourcePage: integer("sourcePage").notNull(),
+    importance: integer("importance").default(3).notNull(),
+    // Narrative chunk that drove this scene (the planner's scene description).
+    description: text("description"),
+    // Generation prompt + any structured generation parameters (JSON).
+    prompt: text("prompt"),
+    generationParams: text("generationParams"),
+    modelVersion: varchar("modelVersion", { length: 128 }),
+    thumbnailFileKey: varchar("thumbnailFileKey", { length: 255 }),
+    thumbnailUrl: varchar("thumbnailUrl", { length: 1024 }),
+    generatedImageFileKey: varchar("generatedImageFileKey", { length: 255 }),
+    generatedImageUrl: varchar("generatedImageUrl", { length: 1024 }),
+    processingStatus: pageStatusEnum("processingStatus").default("pending").notNull(),
+    errorMessage: text("errorMessage"),
+    retryCount: integer("retryCount").default(0).notNull(),
+    maxRetries: integer("maxRetries").default(3).notNull(),
+    lastRetryAt: timestamp("lastRetryAt"),
+    nextRetryAt: timestamp("nextRetryAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => [
+    index("scenes_bookId_idx").on(table.bookId),
+    index("scenes_status_idx").on(table.processingStatus),
+    uniqueIndex("scenes_bookScene_idx").on(table.bookId, table.sceneIndex),
+  ]
+);
+
+export type Scene = typeof scenes.$inferSelect;
+export type InsertScene = typeof scenes.$inferInsert;
 
 export const retryHistory = pgTable(
   "retryHistory",
@@ -139,7 +196,12 @@ export type InsertProcessingJob = typeof processingJobs.$inferInsert;
 
 export const booksRelations = relations(books, ({ many }) => ({
   pages: many(pages),
+  scenes: many(scenes),
   jobs: many(processingJobs),
+}));
+
+export const scenesRelations = relations(scenes, ({ one }) => ({
+  book: one(books, { fields: [scenes.bookId], references: [books.id] }),
 }));
 
 export const pagesRelations = relations(pages, ({ one }) => ({

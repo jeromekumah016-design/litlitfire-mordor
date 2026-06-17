@@ -6,7 +6,7 @@
 - [x] generateScenePrompts: one prompt per scene using locked visual bible
 - [x] Unit tests (23) for dedupe / ranking / clamp / fallback / prompt pairing
 - [x] Wire generateScenePrompts into processBookPipeline (behind a flag)
-- [ ] Schema for scene→image mapping (NEEDS JEROME: pages keyed by pageNumber)
+- [x] Dedicated `scenes` table cut-over (APPROVED): scene mode writes only to scenes, no synthetic page rows; books.generationMode flag; dual read path; +migration 0005
 - [x] Surface scene plan + rationale in DevModeDiagnostics / gallery
 - [x] User-facing gallery shows scene title + source-page caption (shared/galleryImages, +5 tests)
 

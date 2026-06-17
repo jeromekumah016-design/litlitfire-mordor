@@ -9,19 +9,22 @@ import {
 } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
 import { generateScenePrompts, type ScenePrompt } from "./scenePlanner";
-import { packSceneOcrText } from "../shared/sceneMetadata";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 import {
   createPage,
   updatePage,
   getBookPages,
+  createScene,
+  updateScene,
+  getBookScenes,
+  setBookGenerationMode,
   createProcessingJob,
   updateProcessingJob,
   updateBook,
 } from "./db";
-import { markPageForRetry } from "./retryService";
-import type { Page } from "../drizzle/schema";
+import { markPageForRetry, markSceneForRetry } from "./retryService";
+import type { Page, Scene } from "../drizzle/schema";
 
 export interface PipelineProgress {
   bookId: number;
@@ -263,78 +266,87 @@ export async function processBookPipeline(
  * the image generator; THIS pipeline is the only caller of generateImage. The
  * story bible remains the sole mediator between transcription and rendering.
  *
- * INTERIM PERSISTENCE -- NEEDS JEROME: the `pages` table is keyed by pageNumber.
- * Until the scene->image schema decision is made (scenes table vs nullable
- * sceneIndex on pages), each selected scene is persisted as a sequential row
- * with pageNumber = scene ordinal (1..N). A book is processed in exactly one
- * mode, so page-based and scene-based rows never coexist for the same book.
- * The scene's source page is preserved via its thumbnail; title/rationale are
- * logged. Richer per-scene metadata persistence waits on the schema decision.
+ * PERSISTENCE: scene-mode books write EXCLUSIVELY to the dedicated `scenes`
+ * table -- never to `pages`. No synthetic page rows. The book is flipped to
+ * generationMode = "scene" so the read path knows which table to query. Each
+ * scene captures its real title, source page, rationale, prompt and image at
+ * generation time (structured + lossless), keyed by 0-based sceneIndex.
  */
 
-/** Persist a single planned scene: thumbnail + generated image + DB row. */
+/** Persist a single planned scene to the scenes table: thumbnail + image + row. */
 async function processScene(
   bookId: number,
-  ordinal: number,
+  sceneIndex: number,
   pdfBuffer: Buffer,
-  scenePrompt: ScenePrompt
-): Promise<Page | null> {
+  scenePrompt: ScenePrompt,
+  existing?: Scene
+): Promise<Scene | null> {
   const { scene } = scenePrompt;
-  const packedOcrText = packSceneOcrText(
-    { title: scene.title, rationale: scene.rationale, sourcePage: scene.sourcePage, importance: scene.importance },
-    scene.description
-  );
-  console.log(`[Pipeline:Scenes] Scene ${ordinal} ("${scene.title}", source p.${scene.sourcePage}): thumbnail...`);
+  console.log(`[Pipeline:Scenes] Scene #${sceneIndex} ("${scene.title}", source p.${scene.sourcePage}): thumbnail...`);
   const thumbnailBuffer = await generatePageThumbnail(pdfBuffer, scene.sourcePage, 1.0);
-  const thumbnailKey = `books/${bookId}/scenes/${ordinal}/thumbnail.png`;
+  const thumbnailKey = `books/${bookId}/scenes/${sceneIndex}/thumbnail.png`;
   const { url: thumbnailUrl } = await storagePut(thumbnailKey, thumbnailBuffer, "image/png");
+
+  // Structured, lossless capture of the generation context (Jerome's caveat):
+  // title, rationale, source page, prompt and generation params recorded now,
+  // while still in hand -- not reconstructed from strings later.
+  const baseFields = {
+    bookId,
+    sceneIndex,
+    title: scene.title,
+    rationale: scene.rationale,
+    sourcePage: scene.sourcePage,
+    importance: scene.importance,
+    description: scene.description,
+    prompt: scenePrompt.prompt,
+    generationParams: JSON.stringify({ style: scenePrompt.style, mood: scenePrompt.mood }),
+    thumbnailFileKey: thumbnailKey,
+    thumbnailUrl,
+  };
 
   let generatedImageUrl: string | null = null;
   let generatedImageKey: string | null = null;
   try {
-    console.log(`[Pipeline:Scenes] Scene ${ordinal}: generating image...`);
+    console.log(`[Pipeline:Scenes] Scene #${sceneIndex}: generating image...`);
     const imageResult = await generateImage({ prompt: scenePrompt.prompt });
     if (imageResult.url) {
       generatedImageUrl = imageResult.url;
-      generatedImageKey = `books/${bookId}/scenes/${ordinal}/generated.png`;
+      generatedImageKey = `books/${bookId}/scenes/${sceneIndex}/generated.png`;
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[Pipeline:Scenes] Image generation failed for scene ${ordinal} ("${scene.title}"):`, errorMsg);
-    const errorPage = await createPage({
-      bookId, pageNumber: ordinal, thumbnailFileKey: thumbnailKey, thumbnailUrl,
-      ocrText: packedOcrText, generatedPrompt: scenePrompt.prompt,
-      processingStatus: "error", errorMessage: `Image generation failed: ${errorMsg}`,
-    });
-    if (errorPage) await markPageForRetry(errorPage.id, bookId, `Image generation failed: ${errorMsg}`, "Scene image generation error - scheduled for automatic retry");
+    console.error(`[Pipeline:Scenes] Image generation failed for scene #${sceneIndex} ("${scene.title}"):`, errorMsg);
+    // Upsert the scene row in error state, then schedule automatic retry.
+    let sceneId = existing?.id;
+    if (existing) {
+      await updateScene(existing.id, { ...baseFields, processingStatus: "error", errorMessage: `Image generation failed: ${errorMsg}` });
+    } else {
+      const created = await createScene({ ...baseFields, processingStatus: "error", errorMessage: `Image generation failed: ${errorMsg}` });
+      sceneId = created?.id;
+    }
+    if (sceneId) await markSceneForRetry(sceneId, bookId, `Image generation failed: ${errorMsg}`, "Scene image generation error - scheduled for automatic retry");
     throw error;
   }
 
-  // Upsert by ordinal so re-runs don't duplicate scene rows.
-  const allPages = await getBookPages(bookId);
-  const existing = allPages.find((p) => p.pageNumber === ordinal);
+  const doneFields = {
+    ...baseFields,
+    generatedImageFileKey: generatedImageKey ?? undefined,
+    generatedImageUrl: generatedImageUrl ?? undefined,
+    processingStatus: "done" as const,
+    errorMessage: null,
+  };
+
   if (existing) {
-    await updatePage(existing.id, {
-      thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText: packedOcrText,
-      generatedPrompt: scenePrompt.prompt,
-      generatedImageFileKey: generatedImageKey || undefined,
-      generatedImageUrl: generatedImageUrl || undefined,
-      processingStatus: "done", errorMessage: null,
-    });
-    return { ...existing, thumbnailFileKey: thumbnailKey, thumbnailUrl: thumbnailUrl ?? null, ocrText: packedOcrText, generatedPrompt: scenePrompt.prompt, generatedImageFileKey: generatedImageKey ?? null, generatedImageUrl: generatedImageUrl ?? null, processingStatus: "done", errorMessage: null };
+    await updateScene(existing.id, doneFields);
+    return { ...existing, ...doneFields, generatedImageFileKey: generatedImageKey ?? null, generatedImageUrl: generatedImageUrl ?? null, errorMessage: null };
   }
-  return createPage({
-    bookId, pageNumber: ordinal, thumbnailFileKey: thumbnailKey, thumbnailUrl,
-    ocrText: packedOcrText, generatedPrompt: scenePrompt.prompt,
-    generatedImageFileKey: generatedImageKey || undefined,
-    generatedImageUrl: generatedImageUrl || undefined,
-    processingStatus: "done",
-  });
+  return createScene(doneFields);
 }
 
 /**
  * Scene-based book processing: extract text, build the story bible, plan a set
- * of distinct scenes, then render one image per scene. Returns scene counts.
+ * of distinct scenes, then render one image per scene into the scenes table.
+ * Returns scene counts. Writes ONLY to `scenes` -- never to `pages`.
  */
 export async function processBookPipelineScenes(
   bookId: number, pdfBuffer: Buffer,
@@ -349,6 +361,8 @@ export async function processBookPipelineScenes(
     const totalPages = Math.min(pdfData.totalPages, MAX_PAGES);
     const ocrTexts = pdfData.pages.slice(0, totalPages).map((p) => p.text);
 
+    // Flip the book onto the scene write-path so the read path queries scenes.
+    await setBookGenerationMode(bookId, "scene");
     await updateBook(bookId, { processingStatus: "processing" });
 
     // Story bible mediates between transcription and rendering.
@@ -368,26 +382,27 @@ export async function processBookPipelineScenes(
       return { successCount: 0, failureCount: 0, sceneCount: 0 };
     }
 
-    // Skip scenes already rendered (safe re-runs), keyed by sequential ordinal.
-    const existingPages = await getBookPages(bookId);
-    const doneOrdinals = new Set(existingPages.filter((p) => p.processingStatus === "done").map((p) => p.pageNumber));
-    if (doneOrdinals.size > 0) console.log(`[Pipeline:Scenes] Skipping ${doneOrdinals.size} already-rendered scene(s)`);
+    // Existing scenes (safe re-runs), keyed by 0-based sceneIndex.
+    const existingScenes = await getBookScenes(bookId);
+    const byIndex = new Map(existingScenes.map((sc) => [sc.sceneIndex, sc]));
+    const doneCount = existingScenes.filter((sc) => sc.processingStatus === "done").length;
+    if (doneCount > 0) console.log(`[Pipeline:Scenes] ${doneCount} scene(s) already rendered; will skip those`);
 
     for (let i = 0; i < sceneCount; i++) {
-      const ordinal = i + 1;
-      if (doneOrdinals.has(ordinal)) {
-        console.log(`[Pipeline:Scenes] Scene ${ordinal} already done -- skipping`);
+      const existing = byIndex.get(i);
+      if (existing && existing.processingStatus === "done") {
+        console.log(`[Pipeline:Scenes] Scene #${i} already done -- skipping`);
         successCount++;
         continue;
       }
       try {
-        await processScene(bookId, ordinal, pdfBuffer, scenePrompts[i]);
+        await processScene(bookId, i, pdfBuffer, scenePrompts[i], existing);
         successCount++;
       } catch (error) {
-        console.error(`[Pipeline:Scenes] Failed to process scene ${ordinal}:`, error);
+        console.error(`[Pipeline:Scenes] Failed to process scene #${i}:`, error);
         failureCount++;
       }
-      if (onProgress) onProgress({ bookId, totalPages: sceneCount, processedPages: successCount, currentPage: ordinal, status: "processing" });
+      if (onProgress) onProgress({ bookId, totalPages: sceneCount, processedPages: successCount, currentPage: i + 1, status: "processing" });
     }
 
     const finalStatus = successCount > 0 ? "completed" : "failed";

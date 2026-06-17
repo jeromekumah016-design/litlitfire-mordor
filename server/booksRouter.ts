@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
-import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage, deleteBook } from "./db";
+import { createBook, getUserBooks, getBook, getBookPages, getBookScenes, updateBook, updatePage, deleteBook } from "./db";
 import { getPDFMetadata } from "./pdfService";
 import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
@@ -150,11 +150,39 @@ export const booksRouter = router({
         const book = await getBook(input.bookId);
         if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
         if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to view this book" });
-        const bookPages = await getBookPages(input.bookId);
+        // Dual read path: scene-mode books read from the scenes table (real
+        // titles + source pages); page-mode books read from pages. Both are
+        // normalised to the same page-shaped array the client already renders,
+        // with scene rows carrying extra sceneTitle/sourcePage fields.
+        const isSceneMode = (book as any).generationMode === "scene";
+        let pageItems;
+        if (isSceneMode) {
+          const bookScenes = await getBookScenes(input.bookId);
+          pageItems = bookScenes.map((sc) => ({
+            id: sc.id,
+            pageNumber: sc.sceneIndex + 1,
+            thumbnailUrl: sc.thumbnailUrl,
+            ocrText: sc.description,
+            generatedPrompt: sc.prompt,
+            generatedImageUrl: sc.generatedImageUrl,
+            processingStatus: sc.processingStatus,
+            errorMessage: sc.errorMessage,
+            retryCount: sc.retryCount,
+            maxRetries: sc.maxRetries,
+            lastRetryAt: sc.lastRetryAt,
+            nextRetryAt: sc.nextRetryAt,
+            sceneTitle: sc.title,
+            sourcePage: sc.sourcePage,
+          }));
+        } else {
+          const bookPages = await getBookPages(input.bookId);
+          pageItems = bookPages.map((page) => ({ id: page.id, pageNumber: page.pageNumber, thumbnailUrl: page.thumbnailUrl, ocrText: page.ocrText, generatedPrompt: page.generatedPrompt, generatedImageUrl: page.generatedImageUrl, processingStatus: page.processingStatus, errorMessage: page.errorMessage, retryCount: page.retryCount, maxRetries: page.maxRetries, lastRetryAt: page.lastRetryAt, nextRetryAt: page.nextRetryAt }));
+        }
         const result = {
           id: book.id, title: book.title, description: book.description, pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus,
-          pages: bookPages.map((page) => ({ id: page.id, pageNumber: page.pageNumber, thumbnailUrl: page.thumbnailUrl, ocrText: page.ocrText, generatedPrompt: page.generatedPrompt, generatedImageUrl: page.generatedImageUrl, processingStatus: page.processingStatus, errorMessage: page.errorMessage, retryCount: page.retryCount, maxRetries: page.maxRetries, lastRetryAt: page.lastRetryAt, nextRetryAt: page.nextRetryAt })),
+          generationMode: (book as any).generationMode ?? "page",
+          pages: pageItems,
           createdAt: book.createdAt,
         };
         setInCache(cacheKey, result);

@@ -66,4 +66,49 @@ describe("galleryImages", () => {
   it("returns an empty array for an empty page set", () => {
     expect(toGalleryImages([])).toEqual([]);
   });
+
+  // --- scenes-table (post-cutover) real-field path ---
+
+  it("prefers real scene fields (sceneTitle/sourcePage) over ocrText", () => {
+    const img = toGalleryImage({
+      id: 5,
+      pageNumber: 2, // sceneIndex + 1
+      generatedImageUrl: "https://cdn/s.png",
+      ocrText: "raw description with no packed header",
+      sceneTitle: "The parting of the sea",
+      sourcePage: 12,
+    });
+    expect(img.title).toBe("The parting of the sea");
+    expect(img.subtitle).toBe("Scene 2 • from page 12");
+  });
+
+  it("uses sourcePage for the subtitle even when sceneTitle is absent", () => {
+    const img = toGalleryImage({
+      id: 6,
+      pageNumber: 1,
+      generatedImageUrl: "https://cdn/s.png",
+      ocrText: "raw description",
+      sourcePage: 4,
+    });
+    expect(img.title).toBe("Page 1");
+    expect(img.subtitle).toBe("Scene 1 • from page 4");
+  });
+
+  it("does not double-count: real fields short-circuit the legacy ocrText path", () => {
+    // ocrText also has a legacy packed header, but real fields must win.
+    const ocrText = packSceneOcrText(
+      { title: "LEGACY TITLE", rationale: "", sourcePage: 99, importance: 1 },
+      "desc"
+    );
+    const img = toGalleryImage({
+      id: 7,
+      pageNumber: 3,
+      generatedImageUrl: "https://cdn/s.png",
+      ocrText,
+      sceneTitle: "REAL TITLE",
+      sourcePage: 8,
+    });
+    expect(img.title).toBe("REAL TITLE");
+    expect(img.subtitle).toBe("Scene 3 • from page 8");
+  });
 });

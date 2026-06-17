@@ -1,6 +1,6 @@
 import { eq, and, lt, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { pages, retryHistory } from "../drizzle/schema";
+import { pages, scenes, retryHistory } from "../drizzle/schema";
 
 /**
  * Retry Service: Manages retry logic for failed page processing with exponential backoff
@@ -278,6 +278,73 @@ export async function resetPageRetryCount(pageId: number): Promise<boolean> {
     return true;
   } catch (error) {
     console.error("[RetryService] Error resetting retry count:", error);
+    return false;
+  }
+}
+
+/**
+ * Mark a scene for retry with exponential backoff (scene-mode equivalent of
+ * markPageForRetry). Updates the scene row's retry fields and records the
+ * attempt in retryHistory, keyed by the scene id in the pageId column so the
+ * existing history table is reused without a schema change.
+ */
+export async function markSceneForRetry(
+  sceneId: number,
+  bookId: number,
+  errorMessage: string,
+  retryReason: string = "Scene image generation failed",
+  config: RetryConfig = DEFAULT_CONFIG
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    console.error("[RetryService] Database not available");
+    return false;
+  }
+
+  try {
+    const sceneData = await db.select().from(scenes).where(eq(scenes.id, sceneId)).limit(1);
+    if (!sceneData.length) {
+      console.error(`[RetryService] Scene ${sceneId} not found`);
+      return false;
+    }
+
+    const scene = sceneData[0];
+    const currentRetryCount = scene.retryCount || 0;
+    if (currentRetryCount >= config.maxRetries) {
+      console.warn(`[RetryService] Scene ${sceneId} exceeded max retries (${config.maxRetries})`);
+      return false;
+    }
+
+    const backoffDelayMs = calculateBackoffDelay(currentRetryCount + 1, config);
+    const nextRetryAt = new Date(Date.now() + backoffDelayMs);
+
+    await db
+      .update(scenes)
+      .set({
+        processingStatus: "error",
+        errorMessage,
+        retryCount: currentRetryCount + 1,
+        lastRetryAt: new Date(),
+        nextRetryAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(scenes.id, sceneId));
+
+    await db.insert(retryHistory).values({
+      pageId: sceneId,
+      bookId,
+      attemptNumber: currentRetryCount + 1,
+      status: "pending",
+      errorMessage,
+      retryReason,
+      backoffDelayMs,
+      createdAt: new Date(),
+    });
+
+    console.log(`[RetryService] Scheduled retry for scene ${sceneId}: attempt ${currentRetryCount + 1}/${config.maxRetries}, backoff: ${backoffDelayMs}ms`);
+    return true;
+  } catch (error) {
+    console.error("[RetryService] Error marking scene for retry:", error);
     return false;
   }
 }
