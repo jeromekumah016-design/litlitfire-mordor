@@ -79,10 +79,15 @@ async function processPagePipelineWithContext(
     let generatedImageKey: string | null = null;
 
     try {
-      const imageResult = await generateImage({ prompt: promptResult.prompt });
+      const imageResult = await generateImage({
+        prompt: promptResult.prompt,
+        keyPrefix: `books/${bookId}/pages/${pageNumber}/generated`,
+      });
       if (imageResult.url) {
         generatedImageUrl = imageResult.url;
-        generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`;
+        // Record the key the image was ACTUALLY stored under (not a fabricated
+        // one) so signed URLs and prefix-based cleanup work.
+        generatedImageKey = imageResult.key ?? null;
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -139,8 +144,8 @@ export async function processPagePipeline(
     let generatedImageUrl: string | null = null;
     let generatedImageKey: string | null = null;
     try {
-      const imageResult = await generateImage({ prompt: promptResult.prompt });
-      if (imageResult.url) { generatedImageUrl = imageResult.url; generatedImageKey = `books/${bookId}/pages/${pageNumber}/generated.png`; }
+      const imageResult = await generateImage({ prompt: promptResult.prompt, keyPrefix: `books/${bookId}/pages/${pageNumber}/generated` });
+      if (imageResult.url) { generatedImageUrl = imageResult.url; generatedImageKey = imageResult.key ?? null; }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorPage = await createPage({ bookId, pageNumber, thumbnailFileKey: thumbnailKey, thumbnailUrl, ocrText, generatedPrompt: promptResult.prompt, processingStatus: "error", errorMessage: `Image generation failed: ${errorMsg}` });
@@ -308,10 +313,14 @@ async function processScene(
   let generatedImageKey: string | null = null;
   try {
     console.log(`[Pipeline:Scenes] Scene #${sceneIndex}: generating image...`);
-    const imageResult = await generateImage({ prompt: scenePrompt.prompt });
+    const imageResult = await generateImage({
+      prompt: scenePrompt.prompt,
+      keyPrefix: `books/${bookId}/scenes/${sceneIndex}/generated`,
+    });
     if (imageResult.url) {
       generatedImageUrl = imageResult.url;
-      generatedImageKey = `books/${bookId}/scenes/${sceneIndex}/generated.png`;
+      // Record the key the image was ACTUALLY stored under (not a fabricated one).
+      generatedImageKey = imageResult.key ?? null;
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);

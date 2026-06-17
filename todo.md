@@ -32,6 +32,7 @@
 - [x] Generate LLM prompts from OCR text (promptService)
 - [x] Integrate image generation per page (generateImage)
 - [x] Chain pipeline with error handling (pipelineService)
+- [x] Persist generated images under book-scoped storage keys and record the REAL file key (fixed dangling generatedImageFileKey in page + scene pipelines; generateImage keyPrefix)
 
 ### 4. PDF Processing Diagnostics in Dev Mode
 - [x] Create Dev Mode panel in UI (DevModeDiagnostics)

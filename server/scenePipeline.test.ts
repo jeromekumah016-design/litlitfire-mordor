@@ -98,7 +98,10 @@ beforeEach(() => {
   mThumb.mockResolvedValue(Buffer.from("thumb") as never);
   mStoragePut.mockResolvedValue({ url: "https://cdn/thumb.png" } as never);
   mBible.mockResolvedValue({ tone: "epic", artStyle: "oil", narrativeSummary: "arc" } as never);
-  mGenImage.mockResolvedValue({ url: "https://cdn/generated.png" } as never);
+  mGenImage.mockImplementation(
+    async (opts: never) =>
+      ({ url: "https://cdn/generated.png", key: `${(opts as { keyPrefix?: string }).keyPrefix}.png` } as never)
+  );
   mGetBookScenes.mockResolvedValue([] as never);
   mCreateScene.mockImplementation(async (sc: never) => ({ id: 99, ...(sc as object) } as never));
   mUpdateScene.mockResolvedValue(undefined as never);
@@ -142,6 +145,27 @@ describe("processBookPipelineScenes (scenes table cut-over)", () => {
     });
     // generationParams is a JSON string carrying style + mood.
     expect(JSON.parse(row.generationParams as string)).toEqual({ style: "oil painting", mood: "epic" });
+  });
+
+  it("persists the generated image under a book-scoped key and records the real key", async () => {
+    mScenePrompts.mockResolvedValue(sceneArray(2) as never);
+
+    await processBookPipelineScenes(7, Buffer.from("pdf"));
+
+    const prefixes = mGenImage.mock.calls.map(
+      (c) => (c[0] as { keyPrefix?: string }).keyPrefix
+    );
+    expect(prefixes).toEqual([
+      "books/7/scenes/0/generated",
+      "books/7/scenes/1/generated",
+    ]);
+    const keys = mCreateScene.mock.calls.map(
+      (c) => (c[0] as { generatedImageFileKey?: string }).generatedImageFileKey
+    );
+    expect(keys).toEqual([
+      "books/7/scenes/0/generated.png",
+      "books/7/scenes/1/generated.png",
+    ]);
   });
 
   it("upholds the OCR decoupling invariant — never calls OCR in scene mode", async () => {

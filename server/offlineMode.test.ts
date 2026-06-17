@@ -132,4 +132,15 @@ describe("generateImage offline", () => {
     expect(svg).toContain("<svg");
     expect(svg).toContain("OFFLINE PLACEHOLDER");
   });
+
+  it("honours a keyPrefix: stores at that key and returns a matching key+url", async () => {
+    const { url, key } = await generateImage({
+      prompt: "Moses parts the sea",
+      keyPrefix: "books/42/scenes/3/generated",
+    });
+    expect(key).toBe("books/42/scenes/3/generated.svg");
+    expect(url).toBe("/__offline_storage__/books/42/scenes/3/generated.svg");
+    const svg = await fs.readFile(offlineFilePath(key!), "utf-8");
+    expect(svg).toContain("OFFLINE PLACEHOLDER");
+  });
 });

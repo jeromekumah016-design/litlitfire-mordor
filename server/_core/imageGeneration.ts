@@ -5,6 +5,15 @@ import { isImageOffline, buildPlaceholderSvg } from "./offline";
 
 export type GenerateImageOptions = {
   prompt: string;
+  /**
+   * Optional storage key PREFIX (WITHOUT extension), e.g.
+   * `books/12/scenes/0/generated`. When supplied, the generated image is stored
+   * at `${keyPrefix}.<ext>` so it lives alongside the book's other assets and the
+   * file key the pipeline records actually matches the stored object (enabling
+   * signed URLs and prefix-based cleanup on book deletion). When omitted, a
+   * generic `generated/<timestamp>` key is used (legacy behaviour).
+   */
+  keyPrefix?: string;
   originalImages?: Array<{
     url?: string;
     b64Json?: string;
@@ -14,6 +23,8 @@ export type GenerateImageOptions = {
 
 export type GenerateImageResponse = {
   url?: string;
+  /** The storage key the image was actually written to (matches the stored object). */
+  key?: string;
 };
 
 let _openai: OpenAI | null = null;
@@ -26,21 +37,35 @@ function getOpenAI() {
 }
 
 /**
+ * Resolve the storage key for a generated image. A caller-supplied keyPrefix is
+ * honoured (any extension it carries is stripped first, then the real `ext` is
+ * appended); otherwise a unique generic key is minted. Kept pure for testing.
+ */
+export function resolveGeneratedImageKey(
+  keyPrefix: string | undefined,
+  ext: string
+): string {
+  const prefix = keyPrefix?.trim();
+  if (prefix) {
+    const clean = prefix.replace(/\.[^/.]+$/, "");
+    return `${clean}.${ext}`;
+  }
+  return `generated/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+}
+
+/**
  * Offline stub: render a deterministic SVG placeholder for the prompt and store
  * it like a real generation. No OpenAI call, no spend. Used when OFFLINE_MODE is
  * on or no OpenAI key is configured. The pipeline is unchanged -- it still calls
- * generateImage() and gets back a usable URL.
+ * generateImage() and gets back a usable URL plus the key it was stored under.
  */
 async function generateImageOffline(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
   const svg = buildPlaceholderSvg(options.prompt);
-  const { url } = await storagePut(
-    `generated/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.svg`,
-    Buffer.from(svg, "utf-8"),
-    "image/svg+xml"
-  );
-  return { url };
+  const key = resolveGeneratedImageKey(options.keyPrefix, "svg");
+  const { url } = await storagePut(key, Buffer.from(svg, "utf-8"), "image/svg+xml");
+  return { url, key };
 }
 
 export async function generateImage(
@@ -61,6 +86,7 @@ export async function generateImage(
   if (!b64) throw new Error("No image data returned from OpenAI");
 
   const buffer = Buffer.from(b64, "base64");
-  const { url } = await storagePut(`generated/${Date.now()}.png`, buffer, "image/png");
-  return { url };
+  const key = resolveGeneratedImageKey(options.keyPrefix, "png");
+  const { url } = await storagePut(key, buffer, "image/png");
+  return { url, key };
 }
