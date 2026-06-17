@@ -112,3 +112,10 @@ temp/
 # Manus version file (auto-generated, not part of source)
 client/public/__manus__/version.json
 .project-config.json
+
+# Vitest / build temp artifacts
+vitest.config.ts.timestamp-*.mjs
+_tmptest
+
+# Offline-mode local storage (stubbed images/thumbnails, no Cloudinary)
+.offline-storage/

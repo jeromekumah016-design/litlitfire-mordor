@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { storagePut } from "../storage";
 import { ENV } from "./env";
+import { isImageOffline, buildPlaceholderSvg } from "./offline";
 
 export type GenerateImageOptions = {
   prompt: string;
@@ -24,9 +25,28 @@ function getOpenAI() {
   return _openai;
 }
 
+/**
+ * Offline stub: render a deterministic SVG placeholder for the prompt and store
+ * it like a real generation. No OpenAI call, no spend. Used when OFFLINE_MODE is
+ * on or no OpenAI key is configured. The pipeline is unchanged -- it still calls
+ * generateImage() and gets back a usable URL.
+ */
+async function generateImageOffline(
+  options: GenerateImageOptions
+): Promise<GenerateImageResponse> {
+  const svg = buildPlaceholderSvg(options.prompt);
+  const { url } = await storagePut(
+    `generated/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.svg`,
+    Buffer.from(svg, "utf-8"),
+    "image/svg+xml"
+  );
+  return { url };
+}
+
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
+  if (isImageOffline()) return generateImageOffline(options);
   const openai = getOpenAI();
 
   const response = await openai.images.generate({

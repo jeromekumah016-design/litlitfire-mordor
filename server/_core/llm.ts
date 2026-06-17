@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { isLLMOffline } from "./offline";
 import OpenAI from "openai";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
@@ -289,7 +290,87 @@ function getOpenAIForLLM() {
   return _openai;
 }
 
+/** Extract the schema name requested for this call, if any. */
+function requestedSchemaName(params: InvokeParams): string | undefined {
+  const rf = params.responseFormat || params.response_format;
+  if (rf && rf.type === "json_schema") return rf.json_schema?.name;
+  const os = params.outputSchema || params.output_schema;
+  return os?.name;
+}
+
+/** Flatten message content to plain text for offline heuristics. */
+function messageText(content: Message["content"]): string {
+  const parts = Array.isArray(content) ? content : [content];
+  return parts
+    .map((p) => (typeof p === "string" ? p : p.type === "text" ? p.text : ""))
+    .join(" ");
+}
+
+/**
+ * Offline LLM stub. Returns deterministic, schema-VALID JSON so every caller
+ * parses cleanly with no network and no spend:
+ *  - image_prompt  -> a templated prompt derived from the page/scene text.
+ *  - story_context -> a minimal-but-valid visual bible (empty entity lists).
+ *  - scene_plan    -> empty list, so scenePlanner uses its deterministic
+ *                     one-scene-per-page fallback.
+ * Any other / no schema -> empty JSON object.
+ */
+function buildOfflineLLMResult(params: InvokeParams): InvokeResult {
+  const schema = requestedSchemaName(params);
+  const lastUser = [...params.messages].reverse().find((m) => m.role === "user");
+  const userText = lastUser ? messageText(lastUser.content) : "";
+
+  let payload: unknown;
+  switch (schema) {
+    case "image_prompt": {
+      const snippet = userText.replace(/\s+/g, " ").trim().slice(0, 160) || "an empty page";
+      payload = {
+        prompt: `[offline] Illustration of: ${snippet}`,
+        style: "offline placeholder illustration",
+        mood: "neutral",
+      };
+      break;
+    }
+    case "story_context":
+      payload = {
+        characters: [],
+        factions: [],
+        locations: [],
+        keyObjects: [],
+        chronology: [],
+        visualMotifs: [],
+        relationships: [],
+        tone: "neutral",
+        setting: "unspecified",
+        timePeriod: "unspecified",
+        artStyle: "offline placeholder illustration",
+        narrativeSummary: "Offline mode: story context not generated (no LLM call).",
+      };
+      break;
+    case "scene_plan":
+      payload = { scenes: [] };
+      break;
+    default:
+      payload = {};
+  }
+
+  return {
+    id: `offline-${Date.now()}`,
+    created: Math.floor(Date.now() / 1000),
+    model: "offline-stub",
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: JSON.stringify(payload) },
+        finish_reason: "stop",
+      },
+    ],
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  };
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  if (isLLMOffline()) return buildOfflineLLMResult(params);
   assertApiKey();
 
   const {

@@ -1,5 +1,39 @@
 import { v2 as cloudinary } from "cloudinary";
+import { promises as fs } from "fs";
+import path from "path";
 import { ENV } from "./_core/env";
+import {
+  isStorageOffline,
+  offlineStorageDir,
+  OFFLINE_URL_PREFIX,
+} from "./_core/offline";
+
+function normalizeRelKey(relKey: string): string {
+  // Strip leading slashes and any traversal so writes stay inside the dir.
+  return relKey.replace(/^\/+/, "").replace(/\.\.(\/|\\|$)/g, "");
+}
+
+/** Absolute on-disk path for an offline-stored key. */
+export function offlineFilePath(relKey: string): string {
+  return path.join(offlineStorageDir(), normalizeRelKey(relKey));
+}
+
+async function offlinePut(
+  relKey: string,
+  data: Buffer | Uint8Array | string
+): Promise<{ key: string; url: string }> {
+  const rel = normalizeRelKey(relKey);
+  const abs = offlineFilePath(rel);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
+  await fs.writeFile(abs, buf);
+  return { key: relKey, url: `${OFFLINE_URL_PREFIX}/${rel.split("/").map(encodeURIComponent).join("/")}` };
+}
+
+function offlineUrl(relKey: string): string {
+  const rel = normalizeRelKey(relKey);
+  return `${OFFLINE_URL_PREFIX}/${rel.split("/").map(encodeURIComponent).join("/")}`;
+}
 
 function getCloudinary() {
   if (!ENV.cloudinaryCloudName || !ENV.cloudinaryApiKey || !ENV.cloudinaryApiSecret) {
@@ -24,6 +58,7 @@ function resourceType(contentType: string): "image" | "raw" | "video" {
 }
 
 export async function storagePut(relKey: string, data: Buffer | Uint8Array | string, contentType = "application/octet-stream"): Promise<{ key: string; url: string }> {
+  if (isStorageOffline()) return offlinePut(relKey, data);
   const cld = getCloudinary();
   const publicId = keyToPublicId(relKey);
   const resType = resourceType(contentType);
@@ -38,6 +73,7 @@ export async function storagePut(relKey: string, data: Buffer | Uint8Array | str
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
+  if (isStorageOffline()) return { key: relKey, url: offlineUrl(relKey) };
   const cld = getCloudinary();
   const publicId = keyToPublicId(relKey);
   const url = cld.url(publicId);
@@ -50,6 +86,8 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
  * so private Cloudinary assets are actually accessible.
  */
 export async function storageGetSignedUrl(relKey: string, expiresInSeconds = 3600): Promise<string> {
+  // Offline files are served by the app's static route; no signing needed.
+  if (isStorageOffline()) return offlineUrl(relKey);
   const cld = getCloudinary();
   const publicId = keyToPublicId(relKey);
   const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds;
