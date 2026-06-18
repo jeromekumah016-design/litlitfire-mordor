@@ -2,6 +2,12 @@ import OpenAI from "openai";
 import { storagePut } from "../storage";
 import { ENV } from "./env";
 import { isImageOffline, buildPlaceholderSvg } from "./offline";
+import {
+  type ImageGenParams,
+  normalizeImageParams,
+  resolveDalleSize,
+  resolvePlaceholderDimensions,
+} from "./imageParams";
 
 export type GenerateImageOptions = {
   prompt: string;
@@ -14,6 +20,13 @@ export type GenerateImageOptions = {
    * generic `generated/<timestamp>` key is used (legacy behaviour).
    */
   keyPrefix?: string;
+  /**
+   * Render-side controls (aspect ratio, quality, stylisation). Normalised
+   * against the defaults so a partial or malformed object is always safe. These
+   * govern HOW the prompt is rasterised; they are NOT derived from OCR and do
+   * not touch the story bible (decoupling invariant upheld).
+   */
+  params?: Partial<ImageGenParams>;
   originalImages?: Array<{
     url?: string;
     b64Json?: string;
@@ -62,7 +75,11 @@ export function resolveGeneratedImageKey(
 async function generateImageOffline(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
-  const svg = buildPlaceholderSvg(options.prompt);
+  // Mirror the requested aspect ratio so the placeholder has the same shape the
+  // real generation would, exercising the params path end-to-end with no spend.
+  const params = normalizeImageParams(options.params);
+  const { width, height } = resolvePlaceholderDimensions(params.aspectRatio);
+  const svg = buildPlaceholderSvg(options.prompt, { width, height });
   const key = resolveGeneratedImageKey(options.keyPrefix, "svg");
   const { url } = await storagePut(key, Buffer.from(svg, "utf-8"), "image/svg+xml");
   return { url, key };
@@ -74,11 +91,15 @@ export async function generateImage(
   if (isImageOffline()) return generateImageOffline(options);
   const openai = getOpenAI();
 
+  const params = normalizeImageParams(options.params);
+
   const response = await openai.images.generate({
     model: "dall-e-3",
     prompt: options.prompt.slice(0, 4000),
     n: 1,
-    size: "1024x1024",
+    size: resolveDalleSize(params.aspectRatio),
+    quality: params.quality,
+    style: params.style,
     response_format: "b64_json",
   });
 

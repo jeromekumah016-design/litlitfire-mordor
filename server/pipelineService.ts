@@ -8,6 +8,7 @@ import {
   type StoryContext,
 } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
+import { type ImageGenParams, normalizeImageParams } from "./_core/imageParams";
 import { generateScenePrompts, type ScenePrompt } from "./scenePlanner";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
@@ -284,6 +285,7 @@ async function processScene(
   sceneIndex: number,
   pdfBuffer: Buffer,
   scenePrompt: ScenePrompt,
+  imageParams: ImageGenParams,
   existing?: Scene
 ): Promise<Scene | null> {
   const { scene } = scenePrompt;
@@ -293,8 +295,10 @@ async function processScene(
   const { url: thumbnailUrl } = await storagePut(thumbnailKey, thumbnailBuffer, "image/png");
 
   // Structured, lossless capture of the generation context (Jerome's caveat):
-  // title, rationale, source page, prompt and generation params recorded now,
-  // while still in hand -- not reconstructed from strings later.
+  // title, rationale, source page, prompt, art-direction tags AND the resolved
+  // render params (aspect/quality/style) recorded now, while still in hand --
+  // not reconstructed from strings later. Render params are kept distinct from
+  // the art-direction style/mood so the exact size/quality used is auditable.
   const baseFields = {
     bookId,
     sceneIndex,
@@ -304,7 +308,11 @@ async function processScene(
     importance: scene.importance,
     description: scene.description,
     prompt: scenePrompt.prompt,
-    generationParams: JSON.stringify({ style: scenePrompt.style, mood: scenePrompt.mood }),
+    generationParams: JSON.stringify({
+      style: scenePrompt.style,
+      mood: scenePrompt.mood,
+      render: imageParams,
+    }),
     thumbnailFileKey: thumbnailKey,
     thumbnailUrl,
   };
@@ -316,6 +324,7 @@ async function processScene(
     const imageResult = await generateImage({
       prompt: scenePrompt.prompt,
       keyPrefix: `books/${bookId}/scenes/${sceneIndex}/generated`,
+      params: imageParams,
     });
     if (imageResult.url) {
       generatedImageUrl = imageResult.url;
@@ -359,10 +368,15 @@ async function processScene(
  */
 export async function processBookPipelineScenes(
   bookId: number, pdfBuffer: Buffer,
-  onProgress?: (progress: PipelineProgress) => void
+  onProgress?: (progress: PipelineProgress) => void,
+  imageParams?: Partial<ImageGenParams>
 ): Promise<{ successCount: number; failureCount: number; sceneCount: number }> {
   let successCount = 0;
   let failureCount = 0;
+
+  // Resolve render params ONCE so every scene in a book shares one shape/quality
+  // and the recorded params are consistent. Defaults preserve legacy behaviour.
+  const resolvedImageParams = normalizeImageParams(imageParams);
 
   try {
     console.log(`[Pipeline:Scenes] Starting book ${bookId} scene-based processing...`);
@@ -405,7 +419,7 @@ export async function processBookPipelineScenes(
         continue;
       }
       try {
-        await processScene(bookId, i, pdfBuffer, scenePrompts[i], existing);
+        await processScene(bookId, i, pdfBuffer, scenePrompts[i], resolvedImageParams, existing);
         successCount++;
       } catch (error) {
         console.error(`[Pipeline:Scenes] Failed to process scene #${i}:`, error);

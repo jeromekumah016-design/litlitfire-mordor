@@ -143,8 +143,13 @@ describe("processBookPipelineScenes (scenes table cut-over)", () => {
       prompt: "prompt 1",
       processingStatus: "done",
     });
-    // generationParams is a JSON string carrying style + mood.
-    expect(JSON.parse(row.generationParams as string)).toEqual({ style: "oil painting", mood: "epic" });
+    // generationParams is a JSON string carrying art-direction (style + mood)
+    // plus the resolved render params (aspect/quality/style) actually used.
+    expect(JSON.parse(row.generationParams as string)).toEqual({
+      style: "oil painting",
+      mood: "epic",
+      render: { aspectRatio: "square", quality: "standard", style: "vivid" },
+    });
   });
 
   it("persists the generated image under a book-scoped key and records the real key", async () => {
@@ -152,6 +157,8 @@ describe("processBookPipelineScenes (scenes table cut-over)", () => {
 
     await processBookPipelineScenes(7, Buffer.from("pdf"));
 
+    // Image generator is asked to store under a per-scene, book-scoped prefix
+    // (not a fabricated flat key) so the recorded file key matches reality.
     const prefixes = mGenImage.mock.calls.map(
       (c) => (c[0] as { keyPrefix?: string }).keyPrefix
     );
@@ -159,6 +166,7 @@ describe("processBookPipelineScenes (scenes table cut-over)", () => {
       "books/7/scenes/0/generated",
       "books/7/scenes/1/generated",
     ]);
+    // The scene rows record the key the generator actually stored to.
     const keys = mCreateScene.mock.calls.map(
       (c) => (c[0] as { generatedImageFileKey?: string }).generatedImageFileKey
     );
