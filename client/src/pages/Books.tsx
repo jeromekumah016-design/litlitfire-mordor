@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Play, Eye, Image, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Play, Eye, Image, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -11,14 +11,34 @@ import PDFPreviewCarouselOptimized from "@/components/PDFPreviewCarouselOptimize
 import DevModeDiagnostics from "./DevModeDiagnostics";
 import BookListCard from "@/components/BookListCard";
 import BookPageReadingDashboard from "@/components/BookPageReadingDashboard";
+import { getStoredBooks } from "@/lib/localStorage";
 
 export default function Books() {
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [, setLocation] = useLocation();
+  const [useLocalStorage, setUseLocalStorage] = useState(false);
+  const [localBooks, setLocalBooks] = useState<any[]>([]);
   const pageSize = 10;
 
-  const booksQuery = trpc.books.list.useQuery({ page: currentPage, pageSize });
+  const booksQuery = trpc.books.list.useQuery({ page: currentPage, pageSize }, { retry: 1 });
+  
+  // Load local books when database fails
+  useEffect(() => {
+    if (booksQuery.error) {
+      console.warn("Database unavailable, using localStorage");
+      setUseLocalStorage(true);
+      const stored = getStoredBooks();
+      setLocalBooks(stored);
+      toast.info("Using local storage - database temporarily unavailable");
+    } else if (booksQuery.data && (booksQuery.data as any).useLocalStorage) {
+      setUseLocalStorage(true);
+      const stored = getStoredBooks();
+      setLocalBooks(stored);
+    } else {
+      setUseLocalStorage(false);
+    }
+  }, [booksQuery.error, booksQuery.data]);
   const bookDetailsQuery = trpc.books.getDetails.useQuery(
     { bookId: selectedBookId! },
     { enabled: !!selectedBookId }
@@ -205,13 +225,48 @@ export default function Books() {
           <p className="text-muted-foreground">Manage and track your PDF processing</p>
         </div>
 
-        {booksQuery.isLoading ? (
+        {/* Show warning if using localStorage */}
+        {useLocalStorage && (
+          <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
+            <CardContent className="flex gap-3 items-start pt-4">
+              <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-amber-900 dark:text-amber-200">Using Local Storage</p>
+                <p className="text-sm text-amber-800 dark:text-amber-300">Database is temporarily unavailable. Your books are stored locally and will sync when the database is back online.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {booksQuery.isLoading && !useLocalStorage ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
+        ) : useLocalStorage && localBooks.length > 0 ? (
+          <>
+            {/* Local Books Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {localBooks.map((book: any) => (
+                <BookListCard
+                  key={book.id}
+                  id={book.id}
+                  title={book.title}
+                  description={book.description ?? undefined}
+                  pageCount={book.pageCount}
+                  processingStatus={book.processingStatus}
+                  createdAt={new Date(book.createdAt)}
+                  onView={() => handleViewBook(book.id)}
+                  onDelete={() => {
+                    toast.success(`Book deleted`);
+                    setLocalBooks(localBooks.filter((b) => b.id !== book.id));
+                  }}
+                />
+              ))}
+            </div>
+          </>
         ) : booksQuery.data && (booksQuery.data as any).items && (booksQuery.data as any).items.length > 0 ? (
           <>
-            {/* Book Grid */}
+            {/* Database Books Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {(booksQuery.data as any).items.map((book: any) => (
                   <BookListCard

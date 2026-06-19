@@ -211,35 +211,52 @@ export async function extractAllThumbnails(
  * Includes title, author, subject, and page count
  */
 export async function extractPDFMetadata(pdfBuffer: Buffer) {
-  try {
-    const pdfDocument = await pdfjsLib.getDocument({
-      data: new Uint8Array(pdfBuffer),
-      useWorkerFetch: false,
-      isEvalSupported: false,
-      disableFontFace: true,
-    } as any).promise;
+  let lastError: any = null;
+  const attempts = [
+    { name: "standard", config: { useWorkerFetch: false, isEvalSupported: false, disableFontFace: true } },
+    { name: "stopAtErrors", config: { useWorkerFetch: false, isEvalSupported: false, disableFontFace: true, stopAtErrors: true } },
+    { name: "maxImageSize=0", config: { useWorkerFetch: false, isEvalSupported: false, disableFontFace: true, stopAtErrors: true, maxImageSize: 0 } },
+  ];
 
-    let metadata: any = {};
+  for (const attempt of attempts) {
     try {
-      metadata = await pdfDocument.getMetadata();
-    } catch {
-      // Some PDFs don't have metadata — this is fine
-    }
+      console.log(`Attempting PDF load with ${attempt.name}...`);
+      const pdfDocument = await pdfjsLib.getDocument({
+        data: new Uint8Array(pdfBuffer),
+        ...attempt.config,
+      } as any).promise;
 
-    return {
-      title: metadata?.info?.Title || null,
-      author: metadata?.info?.Author || null,
-      subject: metadata?.info?.Subject || null,
-      pageCount: pdfDocument.numPages,
-    };
-  } catch (error) {
-    console.error("PDF metadata extraction failed:", error);
-    throw new Error(
-      `Failed to get PDF metadata: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+      let metadata: any = {};
+      try {
+        metadata = await pdfDocument.getMetadata();
+      } catch {
+        // Some PDFs don't have metadata — this is fine
+      }
+
+      const pageCount = pdfDocument.numPages || 0;
+      if (pageCount === 0) {
+        throw new Error("PDF has no pages");
+      }
+
+      return {
+        title: metadata?.info?.Title || null,
+        author: metadata?.info?.Author || null,
+        subject: metadata?.info?.Subject || null,
+        pageCount,
+      };
+    } catch (error) {
+      lastError = error;
+      console.warn(`PDF load attempt (${attempt.name}) failed:`, error);
+    }
   }
+
+  // All attempts failed
+  console.error("PDF metadata extraction failed after all attempts:", lastError);
+  throw new Error(
+    `Failed to get PDF metadata: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`
+  );
 }
 
 /**

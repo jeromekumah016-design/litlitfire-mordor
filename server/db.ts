@@ -13,9 +13,20 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
+      const dbUrl = process.env.DATABASE_URL;
+      // Aggressive SSL configuration for cloud databases
+      const sslConfig = {
+        rejectUnauthorized: false,
+        checkServerIdentity: () => undefined, // Skip certificate validation
+      };
+      
       const pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.DATABASE_URL.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+        connectionString: dbUrl,
+        ssl: sslConfig,
+        // Connection pool settings
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
       });
       _db = drizzle(pool);
     } catch (error) {

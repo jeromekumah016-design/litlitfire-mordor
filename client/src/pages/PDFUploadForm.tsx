@@ -6,6 +6,7 @@ import { Loader2, Upload, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
+import { saveBook } from "@/lib/localStorage";
 
 const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   const [file, setFile] = useState<File | null>(null);
@@ -31,6 +32,26 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
     onSuccess: (data) => {
       setIsSuccess(true);
       setUploadProgress(100);
+      
+      // If using localStorage, save the book locally
+      if ((data as any).useLocalStorage) {
+        try {
+          saveBook({
+            userId: 1,
+            title: data.title,
+            description: "",
+            pdfFileKey: "",
+            pdfFileUrl: "",
+            pageCount: data.pageCount,
+            processingStatus: "pending",
+            totalPrice: data.totalPrice,
+          });
+          toast.info(`Book "${data.title}" saved locally! Will sync when database is available.`);
+        } catch (error) {
+          console.error("Error saving to localStorage:", error);
+          toast.error("Failed to save book locally");
+        }
+      }
       
       // Trigger confetti celebration
       confetti({

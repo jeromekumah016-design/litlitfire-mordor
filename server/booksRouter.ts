@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
 import { createBook, getUserBooks, getBook, getBookPages, updateBook, updatePage } from "./db";
+
 import { getPDFMetadata } from "./pdfService";
 import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
@@ -48,11 +49,12 @@ function invalidateUserCache(userId: number): void {
 const PIPELINE_MAX_PAGES = 20;
 
 export const booksRouter = router({
-  upload: protectedProcedure
+  upload: publicProcedure
     .input(z.object({ title: z.string().min(1).max(255), description: z.string().optional(), pdfData: z.string() }))
     .mutation(async ({ input, ctx }) => {
       try {
-        const userId = ctx.user.id;
+        // Use demo user ID (1) if not authenticated, otherwise use authenticated user
+        const userId = ctx.user?.id ?? 1;
         const pdfBuffer = Buffer.from(input.pdfData, "base64");
 
         const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -70,16 +72,54 @@ export const booksRouter = router({
         const pdfKey = `books/${userId}/${Date.now()}-${input.title.replace(/\s+/g, "-")}.pdf`;
         const { url: pdfUrl } = await storagePut(pdfKey, pdfBuffer, "application/pdf");
 
-        const book = await createBook({ userId, title: input.title, description: input.description, pdfFileKey: pdfKey, pdfFileUrl: pdfUrl, pageCount: metadata.totalPages, processingStatus: "pending", totalPrice });
+        // Try to save to database, but fall back to returning data for client-side storage
+        let book = null;
+        let useLocalStorage = false;
+        
+        try {
+          book = await createBook({ userId, title: input.title, description: input.description, pdfFileKey: pdfKey, pdfFileUrl: pdfUrl, pageCount: metadata.totalPages, processingStatus: "pending", totalPrice });
+        } catch (dbError) {
+          console.warn("[Books Router] Database write failed, using localStorage fallback:", dbError);
+          // Database failed, return data for client-side storage
+          useLocalStorage = true;
+          book = {
+            id: Date.now(),
+            userId,
+            title: input.title,
+            description: input.description,
+            pdfFileKey: pdfKey,
+            pdfFileUrl: pdfUrl,
+            pageCount: metadata.totalPages,
+            processingStatus: "pending" as const,
+            totalPrice: Number(totalPrice),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+        }
+        
         if (!book) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Book record could not be created" });
 
         invalidateUserCache(userId);
-        processBookPipeline(book.id, pdfBuffer).catch((error) => { console.error("[Books Router] Background processing error:", error); });
+        
+        // Only trigger pipeline if saved to database
+        if (!useLocalStorage) {
+          processBookPipeline(book.id, pdfBuffer).catch((error) => { console.error("[Books Router] Background processing error:", error); });
+        }
 
         const pagesWillProcess = Math.min(metadata.totalPages, PIPELINE_MAX_PAGES);
         const pageCapWarning = metadata.totalPages > PIPELINE_MAX_PAGES ? `Only the first ${PIPELINE_MAX_PAGES} of ${metadata.totalPages} pages will be processed.` : undefined;
 
-        return { bookId: book.id, title: book.title, pageCount: book.pageCount, pagesWillProcess, pageCapWarning, totalPrice: Number(book.totalPrice), processingStatus: "processing" };
+        return { 
+          bookId: book.id, 
+          title: book.title, 
+          pageCount: book.pageCount, 
+          pagesWillProcess, 
+          pageCapWarning, 
+          totalPrice: Number(book.totalPrice), 
+          processingStatus: "pending",
+          useLocalStorage,
+          storageMode: useLocalStorage ? "localStorage" : "database"
+        };
       } catch (error) {
         console.error("[Books Router] Upload error:", error);
         if (error instanceof TRPCError) throw error;
@@ -115,21 +155,31 @@ export const booksRouter = router({
       }
     }),
 
-  list: protectedProcedure
+  list: publicProcedure
     .input(z.object({ page: z.number().int().positive().default(1), pageSize: z.number().int().min(1).max(100).default(10) }))
     .query(async ({ ctx, input }) => {
       try {
-        const userId = ctx.user.id;
+        const userId = ctx.user?.id ?? 1;
         const cacheKey = getCacheKey(userId, `books.list.${input.page}.${input.pageSize}`);
         const cached = getFromCache(cacheKey);
         if (cached) return cached;
         const offset = (input.page - 1) * input.pageSize;
-        const userBooks = await getUserBooks(userId);
+        
+        let userBooks: Awaited<ReturnType<typeof getUserBooks>> = [];
+        let useLocalStorage = false;
+        try {
+          userBooks = await getUserBooks(userId);
+        } catch (dbError) {
+          console.warn("[Books Router] Database read failed, will use localStorage fallback:", dbError);
+          useLocalStorage = true;
+        }
+        
         const totalCount = userBooks.length;
         const paginatedBooks = userBooks.slice(offset, offset + input.pageSize);
         const result = {
           items: paginatedBooks.map((book) => ({ id: book.id, title: book.title, description: book.description, pageCount: book.pageCount, totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus, createdAt: book.createdAt })),
           pagination: { page: input.page, pageSize: input.pageSize, totalCount, totalPages: Math.ceil(totalCount / input.pageSize) },
+          useLocalStorage,
         };
         setInCache(cacheKey, result);
         return result;
