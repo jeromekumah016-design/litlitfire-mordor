@@ -450,3 +450,11 @@
 
 ### Page Count Estimation
 - [x] Replace KB-based estimation with actual PDF metadata 
+
+## Image-Gen Parameter Controls (render-side)
+- [x] Render param layer (aspectRatio/quality/style) in server/_core/imageParams.ts (normalize/defaults/DALL-E size map)
+- [x] Expose controls end-to-end: books.upload accepts validated imageParams (strict zod enums) -> processBookPipeline -> scene + page pipelines -> generateImage
+- [x] Resolve params once per book; record resolved render params on each scene row for audit
+- [x] Decoupling invariant upheld: params are render-side only, never OCR-derived
+- [ ] Client UI control to set aspect/quality/style on upload (NEXT UNIT)
+- [ ] Persist chosen params on the book so processPdf/retry reuse them (needs schema migration -- NEEDS JEROME)

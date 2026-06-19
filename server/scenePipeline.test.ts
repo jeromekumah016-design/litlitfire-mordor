@@ -226,3 +226,61 @@ describe("processBookPipelineScenes (scenes table cut-over)", () => {
     expect(mGenImage).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("processBookPipelineScenes (user-supplied render params)", () => {
+  it("threads custom image params to the generator and records them per scene", async () => {
+    mScenePrompts.mockResolvedValue(sceneArray(2) as never);
+
+    await processBookPipelineScenes(1, Buffer.from("pdf"), undefined, {
+      aspectRatio: "landscape",
+      quality: "hd",
+      style: "natural",
+    });
+
+    // Every scene is rendered with the user's chosen params (resolved once,
+    // shared across the book) — not the hardcoded defaults.
+    expect(mGenImage).toHaveBeenCalledTimes(2);
+    for (const call of mGenImage.mock.calls) {
+      expect((call[0] as { params?: unknown }).params).toEqual({
+        aspectRatio: "landscape",
+        quality: "hd",
+        style: "natural",
+      });
+    }
+    // The resolved render params are recorded on each scene row for audit.
+    const renders = mCreateScene.mock.calls.map(
+      (c) => JSON.parse((c[0] as { generationParams: string }).generationParams).render
+    );
+    expect(renders).toEqual([
+      { aspectRatio: "landscape", quality: "hd", style: "natural" },
+      { aspectRatio: "landscape", quality: "hd", style: "natural" },
+    ]);
+  });
+
+  it("normalizes partial params, defaulting omitted fields", async () => {
+    mScenePrompts.mockResolvedValue(sceneArray(1) as never);
+
+    await processBookPipelineScenes(1, Buffer.from("pdf"), undefined, {
+      aspectRatio: "portrait",
+    });
+
+    // aspectRatio honored; quality + style fall back to defaults.
+    expect((mGenImage.mock.calls[0][0] as { params?: unknown }).params).toEqual({
+      aspectRatio: "portrait",
+      quality: "standard",
+      style: "vivid",
+    });
+  });
+
+  it("falls back to default params when none are supplied", async () => {
+    mScenePrompts.mockResolvedValue(sceneArray(1) as never);
+
+    await processBookPipelineScenes(1, Buffer.from("pdf"));
+
+    expect((mGenImage.mock.calls[0][0] as { params?: unknown }).params).toEqual({
+      aspectRatio: "square",
+      quality: "standard",
+      style: "vivid",
+    });
+  });
+});

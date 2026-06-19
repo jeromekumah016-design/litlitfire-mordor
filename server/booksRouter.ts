@@ -47,9 +47,22 @@ function invalidateUserCache(userId: number): void {
 
 const PIPELINE_MAX_PAGES = 20;
 
+// Render-side image-generation controls (aspect ratio / quality / style).
+// Optional: anything omitted is defaulted downstream by normalizeImageParams.
+// Validated here with strict enums so the API rejects unknown values at the
+// boundary rather than relying on silent coercion. Decoupling invariant UPHELD:
+// these are render-side knobs only -- never derived from OCR text or the bible.
+const imageGenParamsSchema = z
+  .object({
+    aspectRatio: z.enum(["square", "portrait", "landscape"]).optional(),
+    quality: z.enum(["standard", "hd"]).optional(),
+    style: z.enum(["vivid", "natural"]).optional(),
+  })
+  .optional();
+
 export const booksRouter = router({
   upload: protectedProcedure
-    .input(z.object({ title: z.string().min(1).max(255), description: z.string().optional(), pdfData: z.string() }))
+    .input(z.object({ title: z.string().min(1).max(255), description: z.string().optional(), pdfData: z.string(), imageParams: imageGenParamsSchema }))
     .mutation(async ({ input, ctx }) => {
       try {
         const userId = ctx.user.id;
@@ -74,7 +87,7 @@ export const booksRouter = router({
         if (!book) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Book record could not be created" });
 
         invalidateUserCache(userId);
-        processBookPipeline(book.id, pdfBuffer).catch((error) => { console.error("[Books Router] Background processing error:", error); });
+        processBookPipeline(book.id, pdfBuffer, undefined, input.imageParams).catch((error) => { console.error("[Books Router] Background processing error:", error); });
 
         const pagesWillProcess = Math.min(metadata.totalPages, PIPELINE_MAX_PAGES);
         const pageCapWarning = metadata.totalPages > PIPELINE_MAX_PAGES ? `Only the first ${PIPELINE_MAX_PAGES} of ${metadata.totalPages} pages will be processed.` : undefined;

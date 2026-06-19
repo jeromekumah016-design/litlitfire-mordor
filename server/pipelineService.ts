@@ -60,6 +60,7 @@ async function processPagePipelineWithContext(
   ocrText: string,
   previousContexts: PageContext[], // mutated in place on success
   storyContext: StoryContext | null,
+  imageParams: ImageGenParams, // resolved render params; not OCR-derived
   onProgress?: (progress: PipelineProgress) => void
 ): Promise<Page | null> {
   try {
@@ -83,6 +84,7 @@ async function processPagePipelineWithContext(
       const imageResult = await generateImage({
         prompt: promptResult.prompt,
         keyPrefix: `books/${bookId}/pages/${pageNumber}/generated`,
+        params: imageParams,
       });
       if (imageResult.url) {
         generatedImageUrl = imageResult.url;
@@ -133,8 +135,10 @@ async function processPagePipelineWithContext(
 
 export async function processPagePipeline(
   bookId: number, pageNumber: number, pdfBuffer: Buffer,
-  onProgress?: (progress: PipelineProgress) => void
+  onProgress?: (progress: PipelineProgress) => void,
+  imageParams?: Partial<ImageGenParams>
 ): Promise<Page | null> {
+  const resolvedImageParams = normalizeImageParams(imageParams);
   try {
     const thumbnailBuffer = await generatePageThumbnail(pdfBuffer, pageNumber, 1.0);
     const thumbnailKey = `books/${bookId}/pages/${pageNumber}/thumbnail.png`;
@@ -145,7 +149,7 @@ export async function processPagePipeline(
     let generatedImageUrl: string | null = null;
     let generatedImageKey: string | null = null;
     try {
-      const imageResult = await generateImage({ prompt: promptResult.prompt, keyPrefix: `books/${bookId}/pages/${pageNumber}/generated` });
+      const imageResult = await generateImage({ prompt: promptResult.prompt, keyPrefix: `books/${bookId}/pages/${pageNumber}/generated`, params: resolvedImageParams });
       if (imageResult.url) { generatedImageUrl = imageResult.url; generatedImageKey = imageResult.key ?? null; }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -197,19 +201,24 @@ const MAX_PAGES = 20;
 
 export async function processBookPipeline(
   bookId: number, pdfBuffer: Buffer,
-  onProgress?: (progress: PipelineProgress) => void
+  onProgress?: (progress: PipelineProgress) => void,
+  imageParams?: Partial<ImageGenParams>
 ): Promise<{ successCount: number; failureCount: number }> {
   // Feature flag: when scene mode is on, plan MULTIPLE distinct scenes per book
   // instead of one image per page. The flag controls behaviour at the single
   // pipeline entry point so callers (upload, retry) need no changes.
   if (ENV.sceneModeEnabled) {
-    const { successCount, failureCount } = await processBookPipelineScenes(bookId, pdfBuffer, onProgress);
+    const { successCount, failureCount } = await processBookPipelineScenes(bookId, pdfBuffer, onProgress, imageParams);
     return { successCount, failureCount };
   }
 
   let successCount = 0;
   let failureCount = 0;
   const pageContexts: PageContext[] = [];
+  // Resolve render params ONCE so every page in this book renders at one
+  // shape/quality. Defaults preserve legacy 1024x1024 behaviour. Render-side
+  // only: not derived from OCR text, not part of the story bible.
+  const resolvedImageParams = normalizeImageParams(imageParams);
 
   try {
     console.log(`[Pipeline] Starting book ${bookId} processing...`);
@@ -237,7 +246,7 @@ export async function processBookPipeline(
         continue;
       }
       try {
-        await processPagePipelineWithContext(bookId, pageNum, pdfBuffer, ocrTexts[pageNum - 1] || "", pageContexts, storyContext, onProgress);
+        await processPagePipelineWithContext(bookId, pageNum, pdfBuffer, ocrTexts[pageNum - 1] || "", pageContexts, storyContext, resolvedImageParams, onProgress);
         successCount++;
       } catch (error) {
         console.error(`[Pipeline] Failed to process page ${pageNum}:`, error);
