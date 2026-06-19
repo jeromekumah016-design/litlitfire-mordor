@@ -456,5 +456,5 @@
 - [x] Expose controls end-to-end: books.upload accepts validated imageParams (strict zod enums) -> processBookPipeline -> scene + page pipelines -> generateImage
 - [x] Resolve params once per book; record resolved render params on each scene row for audit
 - [x] Decoupling invariant upheld: params are render-side only, never OCR-derived
-- [ ] Client UI control to set aspect/quality/style on upload (NEXT UNIT)
+- [x] Client UI control to set aspect/quality/style on upload (PDFUploadForm: aspect/quality/style ToggleGroups -> books.upload imageParams; defaults square/standard/vivid)
 - [ ] Persist chosen params on the book so processPdf/retry reuse them (needs schema migration -- NEEDS JEROME)

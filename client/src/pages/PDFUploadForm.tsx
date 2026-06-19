@@ -2,10 +2,39 @@ import { useState, useEffect, memo, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Loader2, Upload, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
+
+// Render-side image-generation controls. Values mirror the server enums in
+// server/_core/imageParams.ts exactly; the API validates them with strict zod
+// enums (imageGenParamsSchema). These are purely render knobs -- never derived
+// from OCR text -- so the OCR/image-gen decoupling invariant is untouched.
+type AspectRatio = "square" | "portrait" | "landscape";
+type ImageQuality = "standard" | "hd";
+type ImageStyle = "vivid" | "natural";
+
+// Defaults match DEFAULT_IMAGE_PARAMS server-side (square/standard/vivid = the
+// legacy 1024x1024 behaviour), so an untouched form reproduces prior output.
+const DEFAULT_ASPECT: AspectRatio = "square";
+const DEFAULT_QUALITY: ImageQuality = "standard";
+const DEFAULT_STYLE: ImageStyle = "vivid";
+
+const ASPECT_OPTIONS: { value: AspectRatio; label: string; hint: string }[] = [
+  { value: "square", label: "Square", hint: "1:1" },
+  { value: "portrait", label: "Portrait", hint: "2:3" },
+  { value: "landscape", label: "Landscape", hint: "3:2" },
+];
+const QUALITY_OPTIONS: { value: ImageQuality; label: string }[] = [
+  { value: "standard", label: "Standard" },
+  { value: "hd", label: "HD" },
+];
+const STYLE_OPTIONS: { value: ImageStyle; label: string }[] = [
+  { value: "vivid", label: "Vivid" },
+  { value: "natural", label: "Natural" },
+];
 
 const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   const [file, setFile] = useState<File | null>(null);
@@ -14,6 +43,9 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(DEFAULT_ASPECT);
+  const [quality, setQuality] = useState<ImageQuality>(DEFAULT_QUALITY);
+  const [style, setStyle] = useState<ImageStyle>(DEFAULT_STYLE);
 
   const utils = trpc.useUtils();
 
@@ -31,7 +63,7 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
     onSuccess: (data) => {
       setIsSuccess(true);
       setUploadProgress(100);
-      
+
       // Trigger confetti celebration
       confetti({
         particleCount: 100,
@@ -39,9 +71,9 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
         origin: { y: 0.6 },
         colors: ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b"],
       });
-      
+
       toast.success(`Book "${data.title}" uploaded successfully! Processing ${data.pageCount} pages.`);
-      
+
       // Invalidate list so new book + processing status shows immediately in Your Books (basic functionality)
       utils.books.list.invalidate().catch(() => {});
 
@@ -51,6 +83,9 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
         setTitle("");
         setDescription("");
         setUploadProgress(0);
+        setAspectRatio(DEFAULT_ASPECT);
+        setQuality(DEFAULT_QUALITY);
+        setStyle(DEFAULT_STYLE);
       }, 2000);
     },
     onError: (error) => {
@@ -64,40 +99,40 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
       const arrayBuffer = await pdfFile.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       const pdfText = new TextDecoder().decode(uint8Array);
-      
+
       // Extract metadata fields from PDF
       let extractedTitle = "";
       let extractedDescription = "";
       let extractedAuthor = "";
-      
+
       // Try to extract from /Title metadata
       const titleMatch = pdfText.match(/\/Title\s*\(([^)]+)\)/);
       if (titleMatch) {
         extractedTitle = titleMatch[1].trim();
       }
-      
+
       // Try to extract from /Subject metadata (use as description)
       const subjectMatch = pdfText.match(/\/Subject\s*\(([^)]+)\)/);
       if (subjectMatch) {
         extractedDescription = subjectMatch[1].trim();
       }
-      
+
       // Try to extract from /Author metadata
       const authorMatch = pdfText.match(/\/Author\s*\(([^)]+)\)/);
       if (authorMatch) {
         extractedAuthor = authorMatch[1].trim();
       }
-      
+
       // If no subject but we have author, use author as description
       if (!extractedDescription && extractedAuthor) {
         extractedDescription = `By ${extractedAuthor}`;
       }
-      
+
       // Fallback to filename without extension if no title found
       if (!extractedTitle) {
         extractedTitle = pdfFile.name.replace(/\.pdf$/i, "");
       }
-      
+
       return { extractedTitle, extractedDescription };
     } catch (error) {
       console.error("Error extracting PDF metadata:", error);
@@ -121,7 +156,7 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
         return;
       }
       setFile(selectedFile);
-      
+
       // Extract and auto-fill metadata
       const { extractedTitle, extractedDescription } = await extractPDFMetadata(selectedFile);
       setTitle(extractedTitle);
@@ -146,7 +181,7 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       let binaryString = "";
-      
+
       // Simulate progress during encoding
       const chunkSize = Math.ceil(uint8Array.length / 10);
       for (let i = 0; i < uint8Array.length; i++) {
@@ -155,7 +190,7 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
           setUploadProgress(10 + Math.floor((i / uint8Array.length) * 40));
         }
       }
-      
+
       const base64Data = btoa(binaryString);
       setUploadProgress(60);
 
@@ -163,8 +198,9 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
         title: title.trim(),
         description: description.trim() || undefined,
         pdfData: base64Data,
+        imageParams: { aspectRatio, quality, style },
       });
-      
+
       setUploadProgress(90);
     } catch (error) {
       console.error("Upload error:", error);
@@ -172,7 +208,7 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [uploadMutation, file, title, description]);
+  }, [uploadMutation, file, title, description, aspectRatio, quality, style]);
 
   const isFormValid = useMemo(
     () => file && title.trim().length > 0,
@@ -253,6 +289,71 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
                 Auto-filled from PDF metadata (editable)
               </p>
             )}
+          </div>
+
+          {/* Illustration Style (render-side image-gen controls) */}
+          <div className="space-y-4 rounded-lg border p-4">
+            <div>
+              <p className="text-sm font-medium">Illustration Style</p>
+              <p className="text-xs text-muted-foreground">
+                Applies to every generated image in this book. Defaults reproduce the classic square look.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-muted-foreground">Aspect ratio</label>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={aspectRatio}
+                onValueChange={(v) => v && setAspectRatio(v as AspectRatio)}
+                disabled={isLoading}
+                className="w-full"
+              >
+                {ASPECT_OPTIONS.map((opt) => (
+                  <ToggleGroupItem key={opt.value} value={opt.value} aria-label={opt.label} className="flex-col gap-0 py-2 h-auto">
+                    <span className="text-sm">{opt.label}</span>
+                    <span className="text-[10px] text-muted-foreground">{opt.hint}</span>
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-muted-foreground">Quality</label>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={quality}
+                onValueChange={(v) => v && setQuality(v as ImageQuality)}
+                disabled={isLoading}
+                className="w-full"
+              >
+                {QUALITY_OPTIONS.map((opt) => (
+                  <ToggleGroupItem key={opt.value} value={opt.value} aria-label={opt.label}>
+                    {opt.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-muted-foreground">Style</label>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={style}
+                onValueChange={(v) => v && setStyle(v as ImageStyle)}
+                disabled={isLoading}
+                className="w-full"
+              >
+                {STYLE_OPTIONS.map((opt) => (
+                  <ToggleGroupItem key={opt.value} value={opt.value} aria-label={opt.label}>
+                    {opt.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
           </div>
 
           {/* Progress Bar */}
