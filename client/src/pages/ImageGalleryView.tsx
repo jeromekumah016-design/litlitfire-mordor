@@ -4,7 +4,6 @@ import { trpc } from "@/lib/trpc";
 import ImageGalleryVirtualized from "@/components/ImageGalleryVirtualized";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, RotateCcw, BookMarked, Sparkles } from "lucide-react";
-import { toGalleryImages } from "../../../shared/galleryImages";
 
 export default function ImageGalleryView() {
   const params = useParams<{ bookId: string }>();
@@ -69,9 +68,17 @@ export default function ImageGalleryView() {
 
   const book = bookDetailsQuery.data as any;
   const failedPages = book.pages.filter((page: any) => page.processingStatus === "error");
-  // Scene-mode rows render with their scene title + source-page subtitle;
-  // page-mode rows fall back to "Page N". Mapping lives in a tested shared helper.
-  const generatedImages = toGalleryImages(book.pages);
+  const generatedImages = book.pages
+    .filter((page: any) => !!page.generatedImageUrl)
+    .map((page: any) => ({
+      id: String(page.id),
+      pageNumber: page.pageNumber,
+      url: page.generatedImageUrl as string,
+      title: (page.sceneTitle as string | undefined) || `Page ${page.pageNumber}`,
+      subtitle: page.sourcePage
+        ? `Scene ${page.pageNumber} • from page ${page.sourcePage}`
+        : undefined,
+    }));
 
   if (generatedImages.length === 0) {
     return (

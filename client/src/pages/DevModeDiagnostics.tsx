@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { unpackSceneOcrText } from "../../../shared/sceneMetadata";
 
 interface DevModeDiagnosticsProps {
   bookId: number;
@@ -43,6 +42,7 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
 
   const book = bookDetailsQuery.data as any;
   const pages = (book?.pages as any[]) || [];
+  const isSceneMode = book?.generationMode === "scene";
 
   const stats = useMemo(() => ({
     total: pages.length,
@@ -61,7 +61,12 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Dev Mode Diagnostics</CardTitle>
-              <CardDescription>Real-time processing status for book {bookId}</CardDescription>
+              <CardDescription>
+                Real-time processing status for book {bookId}
+                {isSceneMode && (
+                  <span className="ml-2 text-amber-600 font-medium">(scene mode)</span>
+                )}
+              </CardDescription>
             </div>
             <Button
               variant="outline"
@@ -117,10 +122,12 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
         </CardContent>
       </Card>
 
-      {/* Pages List */}
+      {/* Pages / Scenes List */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Page Processing Details</CardTitle>
+          <CardTitle className="text-lg">
+            {isSceneMode ? "Scene Processing Details" : "Page Processing Details"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -149,20 +156,16 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
                     >
                       {page.processingStatus}
                     </Badge>
-                    {(() => {
-                      const { metadata } = unpackSceneOcrText(page.ocrText);
-                      if (metadata) {
-                        return (
-                          <span className="font-medium">
-                            Scene {page.pageNumber}
-                            <span className="text-muted-foreground font-normal ml-1 text-sm">
-                              — {metadata.title}
-                            </span>
-                          </span>
-                        );
-                      }
-                      return <span className="font-medium">Page {page.pageNumber}</span>;
-                    })()}
+                    {page.sceneTitle ? (
+                      <span className="font-medium">
+                        Scene {page.pageNumber}
+                        <span className="text-muted-foreground font-normal ml-1 text-sm">
+                          — {page.sceneTitle}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="font-medium">Page {page.pageNumber}</span>
+                    )}
                   </div>
                   {expandedPageId === page.id ? (
                     <ChevronUp className="w-4 h-4 text-muted-foreground" />
@@ -185,41 +188,31 @@ const DevModeDiagnosticsContent = memo(function DevModeDiagnosticsContent({ book
                       </div>
                     )}
 
-                    {/* OCR Text / Scene Info */}
-                    {page.ocrText && (() => {
-                      const { metadata, description } = unpackSceneOcrText(page.ocrText);
-                      if (metadata) {
-                        return (
-                          <div className="space-y-2">
-                            <div className="bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
-                              <p className="text-xs font-semibold text-amber-800">
-                                Scene {page.pageNumber}: {metadata.title}
-                              </p>
-                              <p className="text-xs text-amber-700">
-                                Source page {metadata.sourcePage} &middot; Importance {metadata.importance}/5
-                              </p>
-                              <p className="text-xs text-amber-600 italic">{metadata.rationale}</p>
-                            </div>
-                            {description && (
-                              <div>
-                                <p className="text-sm font-medium mb-1">Scene Description:</p>
-                                <p className="text-xs text-muted-foreground bg-background p-2 rounded line-clamp-4">
-                                  {description}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }
-                      return (
-                        <div>
-                          <p className="text-sm font-medium mb-1">OCR Text:</p>
-                          <p className="text-xs text-muted-foreground bg-background p-2 rounded line-clamp-4">
-                            {page.ocrText}
+                    {/* Scene info card (scene mode only) */}
+                    {page.sceneTitle && (
+                      <div className="bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
+                        <p className="text-xs font-semibold text-amber-800">
+                          {page.sceneTitle}
+                        </p>
+                        {page.sourcePage != null && (
+                          <p className="text-xs text-amber-700">
+                            Source page {page.sourcePage}
                           </p>
-                        </div>
-                      );
-                    })()}
+                        )}
+                      </div>
+                    )}
+
+                    {/* OCR Text / Scene Description */}
+                    {page.ocrText && (
+                      <div>
+                        <p className="text-sm font-medium mb-1">
+                          {page.sceneTitle ? "Scene Description:" : "OCR Text:"}
+                        </p>
+                        <p className="text-xs text-muted-foreground bg-background p-2 rounded line-clamp-4">
+                          {page.ocrText}
+                        </p>
+                      </div>
+                    )}
 
                     {/* Generated Prompt */}
                     {page.generatedPrompt && (
