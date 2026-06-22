@@ -27,7 +27,10 @@ async function offlinePut(
   await fs.mkdir(path.dirname(abs), { recursive: true });
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
   await fs.writeFile(abs, buf);
-  return { key: relKey, url: `${OFFLINE_URL_PREFIX}/${rel.split("/").map(encodeURIComponent).join("/")}` };
+  // Return the *normalized* key so callers can rely on it to reference the
+  // file that was actually stored. Returning the raw relKey would leave
+  // traversal sequences in the key even though the file lives at rel.
+  return { key: rel, url: `${OFFLINE_URL_PREFIX}/${rel.split("/").map(encodeURIComponent).join("/")}` };
 }
 
 function offlineUrl(relKey: string): string {

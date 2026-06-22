@@ -224,17 +224,16 @@ export async function getProcessingMetrics(userId: number) {
     .map((p) => ({ pageId: p.id, pageNumber: p.pageNumber, error: p.errorMessage, timestamp: p.updatedAt }));
 
   const completedPages = allPages.filter((p) => p.processingStatus === "done");
-  const avgProcessingTime = completedPages.length > 0
-    ? completedPages.reduce((sum, p) => {
-        const createdAt = p.createdAt?.getTime() || 0;
-        const updatedAt = p.updatedAt?.getTime() || 0;
-        return sum + (updatedAt - createdAt);
-      }, 0) / completedPages.length / 1000
-    : 0;
+  const totalTimeMs = completedPages.reduce((sum, p) => {
+    const createdAt = p.createdAt?.getTime() || 0;
+    const updatedAt = p.updatedAt?.getTime() || 0;
+    return sum + (updatedAt - createdAt);
+  }, 0);
+  const avgProcessingTime = completedPages.length > 0 ? totalTimeMs / completedPages.length / 1000 : 0;
 
   return {
     avgProcessingTime: Math.round(avgProcessingTime),
-    totalProcessingTime: completedPages.length,
+    totalProcessingTime: Math.round(totalTimeMs / 1000),
     pagesByStatus,
     recentErrors,
   };

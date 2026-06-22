@@ -72,12 +72,14 @@ describe("booksRouter.retryFailedPages", () => {
 
     expect(failedPages.length).toBe(1);
 
-    // Reset failed pages
+    // Reset failed pages: retryCount is reset to 0 (fresh budget), not
+    // incremented — incrementing would permanently exhaust the budget on
+    // pages that have already hit maxRetries.
     for (const page of failedPages) {
       await updatePage(page.id, {
         processingStatus: "pending",
         errorMessage: null,
-        retryCount: (page.retryCount || 0) + 1,
+        retryCount: 0,
       });
     }
 
@@ -87,7 +89,7 @@ describe("booksRouter.retryFailedPages", () => {
     expect(updatePage).toHaveBeenCalledWith(1, {
       processingStatus: "pending",
       errorMessage: null,
-      retryCount: 1,
+      retryCount: 0,
     });
 
     expect(updateBook).toHaveBeenCalledWith(1, {
@@ -140,12 +142,13 @@ describe("booksRouter.retryFailedPages", () => {
 
     expect(failed.length).toBe(2);
 
-    // Reset all failed pages
+    // Reset all failed pages: retryCount is always reset to 0 so every page
+    // gets a fresh retry budget regardless of how many attempts it has had.
     for (const page of failed) {
       await updatePage(page.id, {
         processingStatus: "pending",
         errorMessage: null,
-        retryCount: (page.retryCount || 0) + 1,
+        retryCount: 0,
       });
     }
 
@@ -153,12 +156,12 @@ describe("booksRouter.retryFailedPages", () => {
     expect(updatePage).toHaveBeenNthCalledWith(1, 1, {
       processingStatus: "pending",
       errorMessage: null,
-      retryCount: 1,
+      retryCount: 0,
     });
     expect(updatePage).toHaveBeenNthCalledWith(2, 2, {
       processingStatus: "pending",
       errorMessage: null,
-      retryCount: 2,
+      retryCount: 0,
     });
   });
 });

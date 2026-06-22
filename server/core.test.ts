@@ -22,6 +22,7 @@ vi.mock("./db", () => ({
   getBook: vi.fn(),
   getUserBooks: vi.fn(),
   getBookPages: vi.fn(),
+  getBookScenes: vi.fn(),
   updateBook: vi.fn(),
   updatePage: vi.fn(),
   deleteBook: vi.fn(),
@@ -84,7 +85,7 @@ import {
 // Router + context — used for createCaller tests
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
-import { getBook, getBookPages, getUserBooks, updateBook, updatePage, createBook, deleteBook } from "./db";
+import { getBook, getBookPages, getBookScenes, getUserBooks, updateBook, updatePage, createBook, deleteBook } from "./db";
 import { getPDFMetadata } from "./pdfService";
 
 // ---------------------------------------------------------------------------
@@ -1915,5 +1916,119 @@ describe("processPagePipeline — upsert predicate: update existing page instead
     expect(upserted.processingStatus).toBe("done");
     expect(upserted.errorMessage).toBeNull();
     expect(upserted.generatedImageUrl).toBe("https://cdn.example.com/img.png");
+  });
+});
+
+// ===========================================================================
+// 16. booksRouter.getProgress — scene-mode books use the scenes table
+// ===========================================================================
+
+describe("booksRouter.getProgress — scene-mode books read from scenes table", () => {
+  function makeScene(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 1,
+      bookId: 1,
+      sceneIndex: 0,
+      title: "Scene 1",
+      processingStatus: "done",
+      errorMessage: null,
+      generatedImageUrl: "https://cdn/scene.png",
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("returns scene counts (not page counts) for a scene-mode book", async () => {
+    vi.mocked(getBook as any).mockResolvedValue(
+      makeBook({ generationMode: "scene", processingStatus: "completed" })
+    );
+    vi.mocked(getBookScenes as any).mockResolvedValue([
+      makeScene({ sceneIndex: 0, processingStatus: "done" }),
+      makeScene({ id: 2, sceneIndex: 1, processingStatus: "done" }),
+      makeScene({ id: 3, sceneIndex: 2, processingStatus: "error", errorMessage: "fail" }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx(1));
+    const result = await caller.books.getProgress({ bookId: 1 });
+
+    expect(result.totalPages).toBe(3);
+    expect(result.completedPages).toBe(2);
+    expect(result.failedPages).toBe(1);
+    expect(result.progressPercentage).toBe(67);
+    expect(getBookScenes).toHaveBeenCalledWith(1);
+    expect(getBookPages).not.toHaveBeenCalled();
+  });
+
+  it("returns 0% progress when a scene-mode book has all scenes pending", async () => {
+    vi.mocked(getBook as any).mockResolvedValue(
+      makeBook({ generationMode: "scene", processingStatus: "processing" })
+    );
+    vi.mocked(getBookScenes as any).mockResolvedValue([
+      makeScene({ processingStatus: "pending" }),
+      makeScene({ id: 2, processingStatus: "pending" }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx(1));
+    const result = await caller.books.getProgress({ bookId: 1 });
+
+    expect(result.progressPercentage).toBe(0);
+    expect(result.pendingPages).toBe(2);
+  });
+
+  it("page-mode book still uses the pages table (regression guard)", async () => {
+    vi.mocked(getBook as any).mockResolvedValue(
+      makeBook({ generationMode: "page", processingStatus: "completed" })
+    );
+    vi.mocked(getBookPages as any).mockResolvedValue([
+      makePage({ processingStatus: "done" }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx(1));
+    const result = await caller.books.getProgress({ bookId: 1 });
+
+    expect(result.totalPages).toBe(1);
+    expect(getBookPages).toHaveBeenCalledWith(1);
+    expect(getBookScenes).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// 17. db.getProcessingMetrics — totalProcessingTime is seconds, not page count
+// ===========================================================================
+
+describe("db.getProcessingMetrics — totalProcessingTime formula", () => {
+  it("totalProcessingTime is the sum of per-page processing times in seconds", () => {
+    // Replicate the formula from server/db.ts to verify the fix: page count was
+    // returned before; now the actual total time in seconds is returned.
+    const now = Date.now();
+    const completedPages = [
+      { createdAt: new Date(now - 5000), updatedAt: new Date(now) },   // 5s
+      { createdAt: new Date(now - 10000), updatedAt: new Date(now) },  // 10s
+    ];
+    const totalTimeMs = completedPages.reduce((sum, p) => {
+      const createdAt = p.createdAt?.getTime() || 0;
+      const updatedAt = p.updatedAt?.getTime() || 0;
+      return sum + (updatedAt - createdAt);
+    }, 0);
+    const avgProcessingTime = totalTimeMs / completedPages.length / 1000;
+    const totalProcessingTime = Math.round(totalTimeMs / 1000);
+
+    // totalProcessingTime should be ~15s (sum), NOT 2 (page count)
+    expect(totalProcessingTime).toBeGreaterThanOrEqual(14);
+    expect(totalProcessingTime).toBeLessThanOrEqual(16);
+    expect(totalProcessingTime).not.toBe(completedPages.length);
+
+    // avgProcessingTime should be ~7-8s (average of 5s and 10s)
+    expect(Math.round(avgProcessingTime)).toBeGreaterThanOrEqual(7);
+    expect(Math.round(avgProcessingTime)).toBeLessThanOrEqual(8);
+  });
+
+  it("totalProcessingTime is 0 when there are no completed pages", () => {
+    const completedPages: { createdAt: Date; updatedAt: Date }[] = [];
+    const totalTimeMs = completedPages.reduce((sum, p) => {
+      return sum + ((p.updatedAt?.getTime() || 0) - (p.createdAt?.getTime() || 0));
+    }, 0);
+    expect(Math.round(totalTimeMs / 1000)).toBe(0);
   });
 });

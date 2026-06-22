@@ -114,10 +114,15 @@ describe("storage offline", () => {
     expect(signed).toBe("/__offline_storage__/books/9/x.png");
   });
 
-  it("strips path traversal from the served URL", async () => {
-    const { url } = await storagePut("../../etc/evil.txt", Buffer.from("x"));
+  it("strips path traversal from the served URL and normalizes the returned key", async () => {
+    const { url, key } = await storagePut("../../etc/evil.txt", Buffer.from("x"));
+    // URL must never contain traversal sequences.
     expect(url).not.toContain("..");
     expect(url).toBe("/__offline_storage__/etc/evil.txt");
+    // The returned key must match where the file was actually stored (normalized),
+    // not the raw input — callers rely on it to look up the file.
+    expect(key).not.toContain("..");
+    expect(key).toBe("etc/evil.txt");
   });
 });
 
@@ -138,8 +143,10 @@ describe("generateImage offline", () => {
       prompt: "Moses parts the sea",
       keyPrefix: "books/42/scenes/3/generated",
     });
+    // The returned key is the real stored object, book-scoped, with svg ext.
     expect(key).toBe("books/42/scenes/3/generated.svg");
     expect(url).toBe("/__offline_storage__/books/42/scenes/3/generated.svg");
+    // And the bytes actually exist at that key (not a dangling reference).
     const svg = await fs.readFile(offlineFilePath(key!), "utf-8");
     expect(svg).toContain("OFFLINE PLACEHOLDER");
   });

@@ -215,17 +215,40 @@ export const booksRouter = router({
         const book = await getBook(input.bookId);
         if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
         if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to view this book" });
-        const pages = await getBookPages(input.bookId);
-        const totalPages = pages.length;
-        const completedPages = pages.filter((p) => p.processingStatus === "done").length;
-        const failedPages = pages.filter((p) => p.processingStatus === "error").length;
-        const processingPages = pages.filter((p) => p.processingStatus === "processing").length;
-        const pendingPages = pages.filter((p) => p.processingStatus === "pending").length;
+        // Scene-mode books write to the scenes table, not pages. Querying pages
+        // for a scene-mode book always returns 0 rows → 0% progress. Use the
+        // scenes table instead so the progress UI actually reflects reality.
+        const isSceneMode = (book as any).generationMode === "scene";
+        let items: { id: number; pageNumber: number; processingStatus: string; errorMessage: string | null; generatedImageUrl: string | null }[];
+        if (isSceneMode) {
+          const scenes = await getBookScenes(input.bookId);
+          items = scenes.map((sc) => ({
+            id: sc.id,
+            pageNumber: sc.sceneIndex + 1,
+            processingStatus: sc.processingStatus,
+            errorMessage: sc.errorMessage,
+            generatedImageUrl: sc.generatedImageUrl,
+          }));
+        } else {
+          const pages = await getBookPages(input.bookId);
+          items = pages.map((page) => ({
+            id: page.id,
+            pageNumber: page.pageNumber,
+            processingStatus: page.processingStatus,
+            errorMessage: page.errorMessage,
+            generatedImageUrl: page.generatedImageUrl,
+          }));
+        }
+        const totalPages = items.length;
+        const completedPages = items.filter((p) => p.processingStatus === "done").length;
+        const failedPages = items.filter((p) => p.processingStatus === "error").length;
+        const processingPages = items.filter((p) => p.processingStatus === "processing").length;
+        const pendingPages = items.filter((p) => p.processingStatus === "pending").length;
         return {
           bookId: input.bookId, totalPages, completedPages, failedPages, processingPages, pendingPages,
           progressPercentage: totalPages > 0 ? Math.round((completedPages / totalPages) * 100) : 0,
           bookStatus: book.processingStatus,
-          pages: pages.map((page) => ({ id: page.id, pageNumber: page.pageNumber, processingStatus: page.processingStatus, errorMessage: page.errorMessage, generatedImageUrl: page.generatedImageUrl })),
+          pages: items,
         };
       } catch (error) {
         console.error("[Books Router] Get progress error:", error);
