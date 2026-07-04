@@ -4,7 +4,9 @@ export const ENV = {
   databaseUrl: process.env.DATABASE_URL ?? "",
   isProduction: process.env.NODE_ENV === "production",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
-  // Legacy Manus Forge stubs — unused but kept for template files that reference them
+  // Legacy Manus Forge endpoint — still read by notification.ts (notifyOwner),
+  // which throws INTERNAL_SERVER_ERROR when these are unset (the normal case
+  // outside Manus hosting).
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   // Google OAuth
