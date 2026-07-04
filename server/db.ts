@@ -120,10 +120,12 @@ export async function createPage(page: InsertPage): Promise<Page | null> {
 
   // Upsert by (bookId, pageNumber). Processing a page — whether the first run or
   // a retry — must update the existing row rather than insert a duplicate. The
-  // schema has a (bookId, pageNumber) index but no DB-level unique constraint,
-  // so we match in application code. Page processing for a given page is
-  // sequential (the pipeline loops pages in order and the retry worker handles
-  // distinct pages), so there is no concurrent-insert race to guard against.
+  // schema declares pages_bookPage_idx as a UNIQUE index on (bookId, pageNumber)
+  // (applied via `pnpm db:push`), so the database enforces this as a backstop.
+  // Page processing for a given page is sequential (the pipeline loops pages in
+  // order and the retry worker handles distinct pages), so this select-then-write
+  // path normally never races; if a duplicate insert ever slips through, the
+  // unique index rejects it instead of silently corrupting the book.
   const existing = await db
     .select()
     .from(pages)

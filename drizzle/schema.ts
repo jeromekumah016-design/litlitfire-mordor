@@ -7,6 +7,7 @@ import {
   varchar,
   numeric,
   index,
+  uniqueIndex,
   serial,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -81,7 +82,7 @@ export const pages = pgTable(
   (table) => [
     index("pages_bookId_idx").on(table.bookId),
     index("pages_status_idx").on(table.processingStatus),
-    index("pages_bookPage_idx").on(table.bookId, table.pageNumber),
+    uniqueIndex("pages_bookPage_idx").on(table.bookId, table.pageNumber),
   ]
 );
 
