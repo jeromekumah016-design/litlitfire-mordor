@@ -1,4 +1,5 @@
 import Tesseract from "tesseract.js";
+import { withRetry } from "./resilience";
 
 export interface OCRResult {
   text: string;
@@ -7,23 +8,42 @@ export interface OCRResult {
 }
 
 /**
+ * Number of in-process attempts for a single OCR call before giving up. This
+ * is deliberately separate from — and smaller than — the DB-backed page-level
+ * retry scheduling in retryService.ts (markPageForRetry/getPagesReadyForRetry).
+ * That layer handles a page that has definitively failed and needs a
+ * backoff-scheduled re-run of the whole pipeline step, possibly much later.
+ * This layer just absorbs a transient hiccup (e.g. a flaky Tesseract worker
+ * spin-up) within the same call so a single blip doesn't bounce the page all
+ * the way out to the outer error/retry path.
+ */
+const OCR_MAX_RETRIES = 2;
+const OCR_INITIAL_DELAY_MS = 250;
+
+/**
  * Extract text from an image buffer using Tesseract OCR
  */
 export async function extractTextFromImage(imageBuffer: Buffer, language: string = "eng"): Promise<OCRResult> {
   try {
-    const result = await Tesseract.recognize(imageBuffer, language, {
-      logger: (m) => {
-        if (m.status === "recognizing text") {
-          console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
-        }
-      },
-    });
+    return await withRetry(
+      async () => {
+        const result = await Tesseract.recognize(imageBuffer, language, {
+          logger: (m) => {
+            if (m.status === "recognizing text") {
+              console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
+            }
+          },
+        });
 
-    return {
-      text: result.data.text,
-      confidence: result.data.confidence,
-      language: result.data.psm || language,
-    };
+        return {
+          text: result.data.text,
+          confidence: result.data.confidence,
+          language: result.data.psm || language,
+        };
+      },
+      OCR_MAX_RETRIES,
+      OCR_INITIAL_DELAY_MS
+    );
   } catch (error) {
     console.error("Error performing OCR:", error);
     throw new Error(`OCR failed: ${error instanceof Error ? error.message : String(error)}`);

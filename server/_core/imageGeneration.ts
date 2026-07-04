@@ -2,12 +2,37 @@ import OpenAI from "openai";
 import { storagePut } from "../storage";
 import { ENV } from "./env";
 import { isImageOffline, buildPlaceholderSvg } from "./offline";
+import { withRetry } from "../resilience";
 import {
   type ImageGenParams,
   normalizeImageParams,
   resolveDalleSize,
   resolvePlaceholderDimensions,
 } from "./imageParams";
+
+/**
+ * Number of in-process attempts for a single DALL-E generation call. Kept
+ * small and separate from the DB-backed page-level retry scheduling in
+ * retryService.ts (markPageForRetry) -- that layer handles a page that has
+ * definitively failed and needs a backoff-scheduled re-run later; this layer
+ * only absorbs a transient failure (rate limit, 5xx, network blip) within the
+ * same call so one hiccup doesn't burn a page's whole retry budget.
+ */
+const IMAGE_GEN_MAX_RETRIES = 2;
+const IMAGE_GEN_INITIAL_DELAY_MS = 500;
+
+/**
+ * True for errors worth retrying in-process: rate limits, server-side (5xx),
+ * and network-level failures with no HTTP status at all. False for anything
+ * that a retry can't fix -- bad request/prompt, auth, content-policy
+ * rejections (4xx other than 429) -- so we fail fast on those instead of
+ * burning time and spend repeating a call that will never succeed.
+ */
+function isRetryableImageGenError(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === undefined) return true; // network/timeout-style failure
+  return status === 429 || status >= 500;
+}
 
 export type GenerateImageOptions = {
   prompt: string;
@@ -93,15 +118,26 @@ export async function generateImage(
 
   const params = normalizeImageParams(options.params);
 
-  const response = await openai.images.generate({
-    model: "dall-e-3",
-    prompt: options.prompt.slice(0, 4000),
-    n: 1,
-    size: resolveDalleSize(params.aspectRatio),
-    quality: params.quality,
-    style: params.style,
-    response_format: "b64_json",
-  });
+  const callOpenAi = () =>
+    openai.images.generate({
+      model: "dall-e-3",
+      prompt: options.prompt.slice(0, 4000),
+      n: 1,
+      size: resolveDalleSize(params.aspectRatio),
+      quality: params.quality,
+      style: params.style,
+      response_format: "b64_json",
+    });
+
+  let response;
+  try {
+    response = await callOpenAi();
+  } catch (firstError) {
+    if (!isRetryableImageGenError(firstError)) throw firstError;
+    // First attempt hit a transient-looking failure (rate limit / 5xx /
+    // network) -- hand the remaining attempts to withRetry's backoff loop.
+    response = await withRetry(callOpenAi, IMAGE_GEN_MAX_RETRIES, IMAGE_GEN_INITIAL_DELAY_MS);
+  }
 
   const b64 = response.data?.[0]?.b64_json;
   if (!b64) throw new Error("No image data returned from OpenAI");
