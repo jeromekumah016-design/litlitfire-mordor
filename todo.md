@@ -104,6 +104,7 @@
 - [x] Write pdfService.test.ts with real extraction tests (skipped due to pdfjs env issues)
 - [x] Write pricingService.test.ts for pricing logic (24 tests passing)
 - [x] Write integration tests for pipeline (manual testing ready, backend ready)
+- [x] Invariant coverage: story-bible consistency + transcribe/render phase boundary (storyBibleBoundary.test.ts, 10 tests: bible built once per book, locked-field drift check across page prompts, chronology gate, bible-failure degradation, image generator never receives raw OCR text; +1 scene-mode render-boundary test)
 
 ### Deployment & Verification
 - [x] Run full test suite (25 tests passing)

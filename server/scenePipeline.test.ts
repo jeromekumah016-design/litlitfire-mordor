@@ -99,11 +99,11 @@ beforeEach(() => {
   mStoragePut.mockResolvedValue({ url: "https://cdn/thumb.png" } as never);
   mBible.mockResolvedValue({ tone: "epic", artStyle: "oil", narrativeSummary: "arc" } as never);
   mGenImage.mockImplementation(
-    async (opts: never) =>
-      ({ url: "https://cdn/generated.png", key: `${(opts as { keyPrefix?: string }).keyPrefix}.png` } as never)
+    async (opts) =>
+      ({ url: "https://cdn/generated.png", key: `${opts.keyPrefix}.png` } as never)
   );
   mGetBookScenes.mockResolvedValue([] as never);
-  mCreateScene.mockImplementation(async (sc: never) => ({ id: 99, ...(sc as object) } as never));
+  mCreateScene.mockImplementation(async (sc) => ({ id: 99, ...sc } as never));
   mUpdateScene.mockResolvedValue(undefined as never);
   mSetMode.mockResolvedValue(undefined as never);
   mUpdateBook.mockResolvedValue(undefined as never);
@@ -282,5 +282,24 @@ describe("processBookPipelineScenes (user-supplied render params)", () => {
       quality: "standard",
       style: "vivid",
     });
+  });
+});
+
+describe("processBookPipelineScenes (render boundary)", () => {
+  it("never hands raw page text to the image generator — prompt + keyPrefix + params only", async () => {
+    mScenePrompts.mockResolvedValue(sceneArray(2) as never);
+
+    await processBookPipelineScenes(1, Buffer.from("pdf"));
+
+    expect(mGenImage).toHaveBeenCalledTimes(2);
+    for (const call of mGenImage.mock.calls) {
+      const args = call[0] as Record<string, unknown>;
+      expect(Object.keys(args).sort()).toEqual(["keyPrefix", "params", "prompt"]);
+      const flat = JSON.stringify(args);
+      expect(flat).not.toContain("page one text long enough to matter");
+      expect(flat).not.toContain("page two text long enough to matter");
+      expect(flat).not.toContain("page three text long enough to matter");
+      expect(flat).not.toContain("page four text long enough to matter");
+    }
   });
 });
