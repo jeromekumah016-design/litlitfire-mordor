@@ -45,6 +45,62 @@ function invalidateUserCache(userId: number): void {
   keysToDelete.forEach((key) => queryCache.delete(key));
 }
 
+// ------------------------------------------------------------------
+// Result shapes for cached procedures.
+//
+// getFromCache<T>'s T has no inference site when called as
+// `getFromCache(cacheKey)` (nothing to infer it from), so it defaults to
+// `unknown`; `if (cached) return cached;` then truthiness-narrows that
+// `unknown` to `{}`, which silently erases every field from the
+// procedure's inferred return type. Runtime is unaffected (this is a
+// types-only issue), but it means callers -- e.g. `caller.books.list(...)`
+// in tests -- lose all property typing on the result. `npm run check`
+// never caught it because the root tsconfig excludes *.test.ts.
+// Binding these type params explicitly (below) fixes it at the source.
+// ------------------------------------------------------------------
+type BookListItem = {
+  id: number;
+  title: string;
+  description: string | null;
+  pageCount: number;
+  totalPrice: number;
+  processingStatus: string;
+  createdAt: Date;
+};
+type BooksListResult = {
+  items: BookListItem[];
+  pagination: { page: number; pageSize: number; totalCount: number; totalPages: number };
+};
+
+type BookDetailsPageItem = {
+  id: number;
+  pageNumber: number;
+  thumbnailUrl: string | null;
+  ocrText: string | null;
+  generatedPrompt: string | null;
+  generatedImageUrl: string | null;
+  processingStatus: string;
+  errorMessage: string | null;
+  retryCount: number;
+  maxRetries: number;
+  lastRetryAt: Date | null;
+  nextRetryAt: Date | null;
+  // Scene-mode rows only (dual read path below).
+  sceneTitle?: string;
+  sourcePage?: number;
+};
+type BookDetailsResult = {
+  id: number;
+  title: string;
+  description: string | null;
+  pageCount: number;
+  totalPrice: number;
+  processingStatus: string;
+  generationMode: string;
+  pages: BookDetailsPageItem[];
+  createdAt: Date;
+};
+
 const PIPELINE_MAX_PAGES = 20;
 
 // Render-side image-generation controls (aspect ratio / quality / style).
@@ -134,13 +190,13 @@ export const booksRouter = router({
       try {
         const userId = ctx.user.id;
         const cacheKey = getCacheKey(userId, `books.list.${input.page}.${input.pageSize}`);
-        const cached = getFromCache(cacheKey);
+        const cached = getFromCache<BooksListResult>(cacheKey);
         if (cached) return cached;
         const offset = (input.page - 1) * input.pageSize;
         const userBooks = await getUserBooks(userId);
         const totalCount = userBooks.length;
         const paginatedBooks = userBooks.slice(offset, offset + input.pageSize);
-        const result = {
+        const result: BooksListResult = {
           items: paginatedBooks.map((book) => ({ id: book.id, title: book.title, description: book.description, pageCount: book.pageCount, totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus, createdAt: book.createdAt })),
           pagination: { page: input.page, pageSize: input.pageSize, totalCount, totalPages: Math.ceil(totalCount / input.pageSize) },
         };
@@ -158,7 +214,7 @@ export const booksRouter = router({
       try {
         const userId = ctx.user.id;
         const cacheKey = getCacheKey(userId, `books.getDetails.${input.bookId}`);
-        const cached = getFromCache(cacheKey);
+        const cached = getFromCache<BookDetailsResult>(cacheKey);
         if (cached) return cached;
         const book = await getBook(input.bookId);
         if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
@@ -168,7 +224,7 @@ export const booksRouter = router({
         // normalised to the same page-shaped array the client already renders,
         // with scene rows carrying extra sceneTitle/sourcePage fields.
         const isSceneMode = (book as any).generationMode === "scene";
-        let pageItems;
+        let pageItems: BookDetailsPageItem[];
         if (isSceneMode) {
           const bookScenes = await getBookScenes(input.bookId);
           pageItems = bookScenes.map((sc) => ({
@@ -191,7 +247,7 @@ export const booksRouter = router({
           const bookPages = await getBookPages(input.bookId);
           pageItems = bookPages.map((page) => ({ id: page.id, pageNumber: page.pageNumber, thumbnailUrl: page.thumbnailUrl, ocrText: page.ocrText, generatedPrompt: page.generatedPrompt, generatedImageUrl: page.generatedImageUrl, processingStatus: page.processingStatus, errorMessage: page.errorMessage, retryCount: page.retryCount, maxRetries: page.maxRetries, lastRetryAt: page.lastRetryAt, nextRetryAt: page.nextRetryAt }));
         }
-        const result = {
+        const result: BookDetailsResult = {
           id: book.id, title: book.title, description: book.description, pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus,
           generationMode: (book as any).generationMode ?? "page",
