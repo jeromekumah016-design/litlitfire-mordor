@@ -257,6 +257,7 @@
 
 
 ## Performance Optimization (v2.0)
+> AUDIT (2026-07-17, see STATUS_LOG.md): most checkmarks below describe code that exists but is never imported by the real entry point (server/_core/index.ts -> routers.ts). Confirmed wired: resilience.ts (retry), ocrCacheService.ts + dataStructureOptimizations.ts (as of 2026-07-17). Confirmed orphaned: connectionPool.ts, dbOptimizationHelpers.ts, dbOptimized.ts, memoryOptimization.ts, dbPerformanceWrapper.ts, trpcMiddleware.ts, metricsRouter.ts, progressRouter.ts, progressTracker.ts, streamingUpload.ts. Needs Jerome's call: wire in, delete, or leave as reference. Checkboxes below left as historical record, not re-verified line by line.
 
 ### Frontend Optimization
 - [x] Integrate optimized carousel/gallery components into existing routes (Books.tsx and ImageGalleryView.tsx)
