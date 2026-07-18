@@ -174,6 +174,48 @@ export async function generatePageThumbnail(
 }
 
 /**
+ * Extract the real text-layer content for a single page.
+ *
+ * Used by the single-page pipeline (pipelineService.processPagePipeline,
+ * invoked by the automatic retry worker) so a retried page derives its text
+ * the same way the main multi-page pipeline does (extractPDFPages) instead
+ * of via a separate mechanism. It previously ran Tesseract OCR against
+ * generatePageThumbnail's output -- but that function returns a hardcoded
+ * 1x1 PNG (real thumbnails are generated client-side, see NOTE above), so
+ * every such OCR call was guaranteed to return empty/garbage text and would
+ * silently overwrite a page's real, previously-extracted text on retry.
+ * This extracts the same pdfjs text layer extractPDFPages uses, scoped to
+ * one page so a single retried page doesn't re-parse the whole document's
+ * text unnecessarily.
+ */
+export async function extractSinglePageText(
+  pdfBuffer: Buffer,
+  pageNumber: number
+): Promise<string> {
+  try {
+    const pdfDocument = await pdfjsLib.getDocument({
+      data: new Uint8Array(pdfBuffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    } as any).promise;
+
+    const totalPages = pdfDocument.numPages;
+    if (pageNumber < 1 || pageNumber > totalPages) {
+      throw new Error(
+        `Invalid page number: ${pageNumber}. PDF has ${totalPages} pages.`
+      );
+    }
+
+    return await extractPageText(pdfDocument, pageNumber);
+  } catch (error) {
+    throw new Error(
+      `Failed to extract text for page ${pageNumber}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/**
  * Extract all page thumbnails from a PDF
  * NOTE: Returns minimal PNGs - actual thumbnail generation happens client-side
  */
