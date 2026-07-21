@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import ImageGalleryVirtualized from "@/components/ImageGalleryVirtualized";
+import { SiteHeader } from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, RotateCcw, BookMarked, Sparkles } from "lucide-react";
 
@@ -43,10 +44,13 @@ export default function ImageGalleryView() {
 
   if (bookDetailsQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto" />
-          <p className="text-muted-foreground">Unveiling your visual story...</p>
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-center space-y-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto" />
+            <p className="text-muted-foreground">Unveiling your visual story...</p>
+          </div>
         </div>
       </div>
     );
@@ -54,13 +58,21 @@ export default function ImageGalleryView() {
 
   if (bookDetailsQuery.isError || !bookDetailsQuery.data) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center space-y-4">
-          <p className="text-red-500">Failed to load gallery</p>
-          <Button onClick={() => setLocation("/books")} variant="outline">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Library
-          </Button>
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-center space-y-4">
+            <p className="text-red-500">Failed to load gallery</p>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => setLocation("/")} variant="outline">
+                Home
+              </Button>
+              <Button onClick={() => setLocation("/books")} variant="outline">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Library
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -115,23 +127,31 @@ export default function ImageGalleryView() {
 
   if (generatedImages.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center space-y-6 max-w-md">
-          <div className="flex justify-center">
-            <BookMarked className="w-16 h-16 text-accent/50" />
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-center space-y-6 max-w-md">
+            <div className="flex justify-center">
+              <BookMarked className="w-16 h-16 text-accent/50" />
+            </div>
+            <div>
+              <p className="text-lg text-muted-foreground mb-2">
+                No generated images yet
+              </p>
+              <p className="text-sm text-foreground/60">
+                Approve chapters and run Stage 2 generate, then return here.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => setLocation("/")} variant="outline">
+                Home
+              </Button>
+              <Button onClick={() => setLocation("/books")} variant="outline">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Library
+              </Button>
+            </div>
           </div>
-          <div>
-            <p className="text-lg text-muted-foreground mb-2">
-              No generated images yet
-            </p>
-            <p className="text-sm text-foreground/60">
-              Processing in progress... Check back soon to see your visual story unfold.
-            </p>
-          </div>
-          <Button onClick={() => setLocation("/books")} variant="outline">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Library
-          </Button>
         </div>
       </div>
     );
@@ -139,6 +159,7 @@ export default function ImageGalleryView() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      <SiteHeader compact />
       {/* Ambient background effects */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="ambient-light ambient-light-warm" style={{ width: '200px', height: '200px', top: '10%', left: '5%', animationDelay: '0s' }} />
@@ -154,6 +175,7 @@ export default function ImageGalleryView() {
               size="icon"
               onClick={() => setLocation("/books")}
               className="hover:bg-accent/10"
+              title="Back to Library"
             >
               <ArrowLeft className="w-4 h-4" />
             </Button>

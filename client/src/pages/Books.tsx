@@ -11,6 +11,7 @@ import PDFPreviewCarouselOptimized from "@/components/PDFPreviewCarouselOptimize
 import DevModeDiagnostics from "./DevModeDiagnostics";
 import BookListCard from "@/components/BookListCard";
 import BookPageReadingDashboard from "@/components/BookPageReadingDashboard";
+import { SiteHeader } from "@/components/SiteHeader";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 
@@ -95,23 +96,29 @@ export default function Books() {
 
   if (authLoading) {
     return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex justify-center items-center min-h-[50vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
 
   if (!isAuthenticated || !user) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-8">
-        <h1 className="text-2xl font-semibold text-center">Sign in to add books</h1>
-        <p className="text-sm text-muted-foreground text-center max-w-md">
-          Uploading and listing books requires a session. Locally this uses demo
-          login (no Google account needed when Google OAuth is not configured).
-        </p>
-        <Button asChild size="lg">
-          <a href={getLoginUrl("/books")}>Sign in</a>
-        </Button>
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-8">
+          <h1 className="text-2xl font-semibold text-center">Sign in to add books</h1>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            Uploading and listing books requires a session. Locally this uses demo
+            login (no Google account needed when Google OAuth is not configured).
+          </p>
+          <Button asChild size="lg">
+            <a href={getLoginUrl("/books")}>Sign in</a>
+          </Button>
+        </div>
       </div>
     );
   }
@@ -119,7 +126,9 @@ export default function Books() {
   if (selectedBookId && bookDetailsQuery.data) {
     const book = bookDetailsQuery.data;
     return (
-      <div className="space-y-6 parchment-texture p-6 rounded-xl border border-accent/20">
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+      <div className="space-y-6 parchment-texture p-6 rounded-xl border border-accent/20 m-4">
         <div className="flex items-center justify-between gap-4 border-b border-accent/20 pb-4">
           <div className="flex items-center gap-4">
             <Button variant="outline" onClick={() => setSelectedBookId(null)} className="border-accent/40 text-primary hover:bg-accent/10">
@@ -273,11 +282,14 @@ export default function Books() {
           </div>
         </div>
       </div>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="min-h-screen flex flex-col bg-background">
+      <SiteHeader compact />
+    <div className="space-y-8 p-6">
       <div>
         <h1 className="text-3xl font-bold mb-2">PDF Books</h1>
         <p className="text-muted-foreground">Upload and process PDF books into visual content</p>
@@ -395,6 +407,7 @@ export default function Books() {
           </Card>
         )}
       </div>
+    </div>
     </div>
   );
 }
