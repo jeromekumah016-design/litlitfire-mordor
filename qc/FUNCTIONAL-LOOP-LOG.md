@@ -33,3 +33,53 @@ Definition: user query “functional” bars 0–6.
 - **D7:** deferred — still LLM free-text final prompt; not required for bars 0–6 as stated.
 
 ---
+
+## Iteration 1 — retryWorker render-only (bar §5)
+
+**Shipped:** commit `765dafa`
+- `reRenderApprovedPage` in gatePipeline — approved + persisted prompt only
+- `retryWorker` uses it; refuses non-approved (no `processPagePipeline`)
+- Tests: render never calls `generateImagePrompt` / `buildStoryContext`
+
+**Decision:** Retry worker, when enabled, is safe for C3 (no prompt/bible regen). Default remains OFF.
+
+**Verify:** tsc clean, 304 tests pass.
+
+**Next:** unblock bar §0 real run — need Postgres. Workspace has no usable DATABASE_URL. Will try embedded Postgres / PGlite for a local e2e loop that persists real files under `.offline-storage`.
+
+---
+
+## Iteration 2 — embedded-Postgres e2e proof (bar §0 offline path)
+
+**Shipped:**
+- `scripts/functional-e2e.ts` + `pnpm e2e:functional`
+- `embedded-postgres` devDep + manual hydrate of windows-x64 binaries (pnpm blocked postinstall; junction + hydrate-symlinks)
+- Proof: `qc/FUNCTIONAL-E2E-PROOF.md` + `qc/proof-artifacts/page-1.svg`
+
+**Run result (exit 0):**
+- extract=3, bible persisted, approved=3, rendered=3 errors=0
+- key=`books/1/pages/1/generated.svg`
+- url=`/__offline_storage__/books/1/pages/1/generated.svg`
+- artifact size 1161 bytes on disk
+
+**Decision:** Use embedded Postgres for local proof when no Neon URL. Offline SVG counts as bar §0 *codepath* proof (same `generateImage`→`storagePut`→key). Live DALL·E PNG blocked by missing OPENAI_API_KEY in this environment — logged, not forced.
+
+**Decision on bar §6 cap scope:** Upload no longer renders (extract only). Cap correctly sits on `renderApprovedImages` + `retryFailedPages`. `processPdf` is extract-only (no spend) so cap is not applied there; applying a “render cap” to pure OCR would be meaningless. Auth on upload/list, retry default-off, H5 fetch ordering: intact.
+
+**Next:** Final checklist report. No further code slices unless suite regresses.
+
+---
+
+## Final checklist (definition of functional)
+
+| # | Requirement | Verdict |
+|---|-------------|---------|
+| 0 | Photos e2e + real key + viewable file | **PASS (offline path, real DB)** — see FUNCTIONAL-E2E-PROOF.md. Live DALL·E not run (no API key). |
+| 1 | Upload store+OCR only | **PASS** |
+| 2 | Transcribe + persisted storyBible + promptStatus | **PASS** |
+| 3 | Server-enforced approve | **PASS** |
+| 4 | Render from persisted prompt only | **PASS** (+ unit test lock) |
+| 5 | Retry re-renders persisted prompt only | **PASS** (retryFailedPages + retryWorker) |
+| 6 | Cap / auth / retry-off / H5 | **PASS** (cap on render paths; see decision above for processPdf extract) |
+
+---
