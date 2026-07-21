@@ -7,11 +7,31 @@ import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
 import {
   PIPELINE_MAX_PAGES,
-  decideAutoStartRender,
-  getDailyRenderPageCap,
-  sumStartedRenderUnitsToday,
+  evaluateUserDailyRenderCap,
+  type AutoStartDecision,
 } from "./renderCap";
 import { TRPCError } from "@trpc/server";
+
+/** Per-user daily cap check. Always loads getUserBooks(userId) — never global. */
+async function checkUserDailyRenderCap(
+  userId: number,
+  book: { id: number; pageCount: number }
+): Promise<AutoStartDecision> {
+  const userBooks = await getUserBooks(userId);
+  return evaluateUserDailyRenderCap(userBooks, book.pageCount, {
+    excludeBookId: book.id,
+  });
+}
+
+function dailyRenderCapError(decision: AutoStartDecision, action: string): TRPCError {
+  return new TRPCError({
+    code: "TOO_MANY_REQUESTS",
+    message:
+      `Daily render cap exceeded for this account ` +
+      `(used ${decision.used} + book ${decision.bookUnits} page-units > cap ${decision.cap}). ` +
+      `${action} blocked. Wait for the next UTC day or raise DAILY_RENDER_PAGE_CAP.`,
+  });
+}
 
 // ------------------------------------------------------------------
 // In-memory query cache with TTL + size cap
@@ -150,9 +170,11 @@ export const booksRouter = router({
 
         invalidateUserCache(userId);
 
-        const userBooks = await getUserBooks(userId);
-        const usedToday = sumStartedRenderUnitsToday(userBooks);
-        const autoStart = decideAutoStartRender(usedToday, metadata.totalPages, getDailyRenderPageCap());
+        // Per-user only: checkUserDailyRenderCap → getUserBooks(userId).
+        const autoStart = await checkUserDailyRenderCap(userId, {
+          id: book.id,
+          pageCount: metadata.totalPages,
+        });
 
         let processingStatus: "pending" | "processing" = "pending";
         if (autoStart.allowed) {
@@ -162,7 +184,7 @@ export const booksRouter = router({
           processingStatus = "processing";
         } else {
           console.warn(
-            `[Books Router] Upload auto-render blocked for user ${userId}: used=${autoStart.used} + book=${autoStart.bookUnits} > cap=${autoStart.cap}. Book ${book.id} left pending; call processPdf explicitly when ready.`
+            `[Books Router] Upload auto-render blocked for user ${userId}: used=${autoStart.used} + book=${autoStart.bookUnits} > cap=${autoStart.cap}. Book ${book.id} left pending. processPdf/retryFailedPages use the same per-user daily budget.`
           );
         }
 
@@ -203,6 +225,17 @@ export const booksRouter = router({
         if (book.processingStatus === "processing" || book.processingStatus === "completed") {
           return { bookId: input.bookId, status: book.processingStatus, message: `PDF is ${book.processingStatus}` };
         }
+
+        // Same per-user daily bucket as upload auto-trigger (exclude this book
+        // so a reprocess of an already-started title is not double-counted).
+        const capDecision = await checkUserDailyRenderCap(userId, {
+          id: book.id,
+          pageCount: book.pageCount,
+        });
+        if (!capDecision.allowed) {
+          throw dailyRenderCapError(capDecision, "processPdf");
+        }
+
         // H5: never mark "processing" until the PDF bytes are in hand. A prior
         // bug set processing first, then logged fetch failures and left the
         // book permanently stuck (re-trigger refused while status=processing).
@@ -225,7 +258,17 @@ export const booksRouter = router({
         processBookPipeline(book.id, pdfBuffer).catch((error) => {
           console.error("[Books Router] processPdf pipeline error:", error);
         });
-        return { bookId: input.bookId, status: "processing", message: "PDF processing started" };
+        return {
+          bookId: input.bookId,
+          status: "processing",
+          message: "PDF processing started",
+          dailyRender: {
+            used: capDecision.used,
+            cap: capDecision.cap,
+            bookUnits: capDecision.bookUnits,
+            remaining: capDecision.remaining,
+          },
+        };
       } catch (error) {
         console.error("[Books Router] Process PDF error:", error);
         if (error instanceof TRPCError) throw error;
@@ -374,6 +417,15 @@ export const booksRouter = router({
         const failedPages = pages.filter((p) => p.processingStatus === "error");
         if (failedPages.length === 0) return { success: true, message: "No failed pages to retry", retriedCount: 0 };
 
+        // Same per-user daily bucket as upload / processPdf.
+        const capDecision = await checkUserDailyRenderCap(userId, {
+          id: book.id,
+          pageCount: book.pageCount,
+        });
+        if (!capDecision.allowed) {
+          throw dailyRenderCapError(capDecision, "retryFailedPages");
+        }
+
         // H5: fetch PDF first. Do not reset pages or mark book "processing"
         // until bytes are in hand — otherwise a fetch failure leaves pages
         // pending / book processing with no pipeline running.
@@ -409,7 +461,17 @@ export const booksRouter = router({
           console.error("[Books Router] retryFailedPages pipeline error:", err);
         });
 
-        return { success: true, message: `Retrying ${failedPages.length} failed page(s)`, retriedCount: failedPages.length };
+        return {
+          success: true,
+          message: `Retrying ${failedPages.length} failed page(s)`,
+          retriedCount: failedPages.length,
+          dailyRender: {
+            used: capDecision.used,
+            cap: capDecision.cap,
+            bookUnits: capDecision.bookUnits,
+            remaining: capDecision.remaining,
+          },
+        };
       } catch (error) {
         console.error("[Books Router] Retry failed pages error:", error);
         if (error instanceof TRPCError) throw error;

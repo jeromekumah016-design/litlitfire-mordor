@@ -1,10 +1,11 @@
 /**
  * Per-user daily render cap helpers.
  *
- * Audit P0 (qc/AUDIT-RECONCILIATION-2026-07-17.md C1 remaining):
- * upload auto-triggers the full pipeline with no rate limit. This module
- * gates that auto-trigger by counting pipeline page-units already started
- * today for the user.
+ * SCOPE: always per authenticated user. Callers MUST pass only that user's
+ * books (e.g. getUserBooks(userId)). There is no system-wide aggregate — one
+ * account cannot exhaust another account's budget.
+ *
+ * Applied to: upload auto-trigger, processPdf, retryFailedPages (same bucket).
  *
  * Units: min(book.pageCount, PIPELINE_MAX_PAGES) — matches how many pages
  * processBookPipeline actually renders (MAX_PAGES=20).
@@ -12,14 +13,19 @@
  * Counted books: any non-pending processingStatus (processing|completed|failed)
  * created today — i.e. books whose pipeline was started.
  *
+ * When evaluating a specific book, pass excludeBookId so a reprocess/retry of a
+ * book already in today's "started" set is not double-counted (its slot is
+ * already reserved; other books still compete for remaining capacity).
+ *
  * Default cap: DAILY_RENDER_PAGE_CAP env, or 40 (two full 20-page books).
- * Cap of 0 disables auto-trigger entirely. Negative / NaN falls back to default.
+ * Cap of 0 blocks all starts. Negative / NaN falls back to default.
  */
 
 export const PIPELINE_MAX_PAGES = 20;
 export const DEFAULT_DAILY_RENDER_PAGE_CAP = 40;
 
 export type CapBook = {
+  id?: number;
   pageCount: number;
   processingStatus: string;
   createdAt: Date | string;
@@ -48,13 +54,21 @@ export function isPipelineStarted(status: string): boolean {
   return status !== "pending";
 }
 
+export type SumRenderUnitsOptions = {
+  /** Omit this book from the sum (reprocess/retry without double-counting). */
+  excludeBookId?: number;
+};
+
 export function sumStartedRenderUnitsToday(
   books: CapBook[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  options: SumRenderUnitsOptions = {}
 ): number {
   const dayStart = startOfUtcDay(now).getTime();
+  const excludeId = options.excludeBookId;
   let total = 0;
   for (const book of books) {
+    if (excludeId != null && book.id === excludeId) continue;
     const created =
       book.createdAt instanceof Date
         ? book.createdAt.getTime()
@@ -75,10 +89,9 @@ export type AutoStartDecision = {
 };
 
 /**
- * Decide whether upload may fire-and-forget the render pipeline.
- * `used` = units already started today (exclude the book being uploaded if it
- * is still pending — callers should create the book as pending first, then
- * count, then optionally start).
+ * Decide whether a pipeline start is allowed under the daily cap.
+ * `used` = other page-units already started today for this user (caller should
+ * exclude the book under consideration when it may already be non-pending).
  */
 export function decideAutoStartRender(
   used: number,
@@ -87,7 +100,21 @@ export function decideAutoStartRender(
 ): AutoStartDecision {
   const bookUnits = renderUnitsForBook(bookPageCount);
   const remaining = Math.max(0, cap - used);
-  // Cap 0 = never auto-start. Book with 0 units never starts either.
+  // Cap 0 = never start. Book with 0 units never starts either.
   const allowed = bookUnits > 0 && used + bookUnits <= cap;
   return { allowed, used, cap, bookUnits, remaining };
+}
+
+/**
+ * Full per-user evaluation: sum this user's books (optionally excluding one),
+ * then decide whether `bookPageCount` fits under the cap.
+ */
+export function evaluateUserDailyRenderCap(
+  userBooks: CapBook[],
+  bookPageCount: number,
+  options: SumRenderUnitsOptions & { now?: Date; cap?: number } = {}
+): AutoStartDecision {
+  const { now = new Date(), cap = getDailyRenderPageCap(), excludeBookId } = options;
+  const used = sumStartedRenderUnitsToday(userBooks, now, { excludeBookId });
+  return decideAutoStartRender(used, bookPageCount, cap);
 }

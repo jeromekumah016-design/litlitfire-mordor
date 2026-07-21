@@ -1154,6 +1154,7 @@ describe("booksRouter.upload — validation", () => {
 describe("booksRouter.processPdf — auth guards and status checks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getUserBooks as any).mockResolvedValue([]);
   });
 
   it("throws NOT_FOUND when the book does not exist", async () => {
@@ -1189,6 +1190,46 @@ describe("booksRouter.processPdf — auth guards and status checks", () => {
     const caller = appRouter.createCaller(makeCtx(1));
     const result = await caller.books.processPdf({ bookId: 1 });
     expect(result.status).toBe("processing");
+  });
+
+  it("throws TOO_MANY_REQUESTS when daily render cap would be exceeded", async () => {
+    const today = new Date();
+    vi.mocked(getBook as any).mockResolvedValue(
+      makeBook({ id: 12, userId: 1, pageCount: 5, processingStatus: "pending" })
+    );
+    // Other books for THIS user already at cap=40. Cap is per-user via getUserBooks(userId).
+    vi.mocked(getUserBooks as any).mockResolvedValue([
+      makeBook({ id: 10, pageCount: 20, processingStatus: "processing", createdAt: today }),
+      makeBook({ id: 11, pageCount: 20, processingStatus: "completed", createdAt: today }),
+      makeBook({ id: 12, pageCount: 5, processingStatus: "pending", createdAt: today }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx(1));
+    await expect(caller.books.processPdf({ bookId: 12 })).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+      message: expect.stringContaining("Daily render cap exceeded"),
+    });
+  });
+
+  it("starts processPdf when under cap (fetches PDF then sets processing)", async () => {
+    mockPdfFetchOk();
+    vi.mocked(getBook as any).mockResolvedValue(
+      makeBook({ id: 5, userId: 1, pageCount: 5, processingStatus: "pending" })
+    );
+    vi.mocked(getUserBooks as any).mockResolvedValue([
+      makeBook({ id: 5, pageCount: 5, processingStatus: "pending", createdAt: new Date() }),
+    ]);
+    vi.mocked(updateBook as any).mockResolvedValue(undefined);
+
+    const { processBookPipeline } = await import("./pipelineService");
+    const caller = appRouter.createCaller(makeCtx(1));
+    const result = await caller.books.processPdf({ bookId: 5 });
+
+    expect(result.status).toBe("processing");
+    expect(result.dailyRender?.cap).toBe(40);
+    expect(updateBook).toHaveBeenCalledWith(5, { processingStatus: "processing" });
+    expect(processBookPipeline).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
 
@@ -1320,6 +1361,8 @@ describe("booksRouter.retryFailedPages — integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPdfFetchOk();
+    // Per-user cap path loads getUserBooks(userId); default empty = under cap.
+    vi.mocked(getUserBooks as any).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -1418,6 +1461,31 @@ describe("booksRouter.retryFailedPages — integration", () => {
     const caller = appRouter.createCaller(makeCtx(1));
     await expect(caller.books.retryFailedPages({ bookId: 1 })).rejects.toMatchObject({
       code: "PRECONDITION_FAILED",
+    });
+    expect(updatePage).not.toHaveBeenCalled();
+    expect(updateBook).not.toHaveBeenCalled();
+  });
+
+  it("throws TOO_MANY_REQUESTS when daily render cap blocks retry", async () => {
+    const today = new Date();
+    // Book under retry is id=99 (pending-cap scenario: other books filled the budget).
+    // Exclude-self means book 99 is not double-counted; other books alone = 40.
+    vi.mocked(getBook as any).mockResolvedValue(
+      makeBook({ id: 99, userId: 1, pageCount: 10, processingStatus: "failed" })
+    );
+    vi.mocked(getBookPages as any).mockResolvedValue([
+      makePage({ id: 1, processingStatus: "error", retryCount: 0 }),
+    ]);
+    vi.mocked(getUserBooks as any).mockResolvedValue([
+      makeBook({ id: 10, pageCount: 20, processingStatus: "processing", createdAt: today }),
+      makeBook({ id: 11, pageCount: 20, processingStatus: "completed", createdAt: today }),
+      makeBook({ id: 99, pageCount: 10, processingStatus: "failed", createdAt: today }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx(1));
+    await expect(caller.books.retryFailedPages({ bookId: 99 })).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+      message: expect.stringContaining("Daily render cap exceeded"),
     });
     expect(updatePage).not.toHaveBeenCalled();
     expect(updateBook).not.toHaveBeenCalled();
@@ -1856,6 +1924,7 @@ describe("booksRouter.retryFailedPages — resets retryCount to 0", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPdfFetchOk();
+    vi.mocked(getUserBooks as any).mockResolvedValue([]);
   });
 
   afterEach(() => {
