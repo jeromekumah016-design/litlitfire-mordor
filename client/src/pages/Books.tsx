@@ -62,8 +62,31 @@ export default function Books() {
     },
   });
 
+  const deleteMutation = trpc.books.delete.useMutation({
+    onSuccess: (_data, vars) => {
+      toast.success("Book deleted");
+      if (selectedBookId === vars.bookId) setSelectedBookId(null);
+      booksQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Delete failed: ${error.message}`);
+    },
+  });
+
   const handleTranscribe = (bookId: number) => {
     transcribeMutation.mutate({ bookId });
+  };
+
+  const handleDeleteBook = (bookId: number, title?: string) => {
+    const label = title ? `"${title}"` : "this book";
+    if (
+      !window.confirm(
+        `Delete ${label}? This removes the book, pages, and generated images from your library.`
+      )
+    ) {
+      return;
+    }
+    deleteMutation.mutate({ bookId });
   };
 
   const handleViewBook = (bookId: number) => {
@@ -131,7 +154,7 @@ export default function Books() {
                   <p className="font-medium">
                     Lite · chapters
                     {(book as any).chapterCount
-                      ? ` (${(book as any).chapterCount})`
+                      ? ` (${(book as any).chapterCount} detected)`
                       : ""}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -140,8 +163,19 @@ export default function Books() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Price</p>
-                  <p className="font-medium">${Number((book as any).totalPrice).toFixed(2)}</p>
+                  <p className="text-sm text-muted-foreground">Lite estimate</p>
+                  <p className="font-medium">
+                    $
+                    {Number(
+                      (book as any).liteDisplayPrice ?? (book as any).totalPrice
+                    ).toFixed(2)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {(book as any).mainChapterCount ??
+                      (book as any).promptReadyCount ??
+                      "—"}{" "}
+                    chapter image unit(s) (not every source page)
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
@@ -314,11 +348,10 @@ export default function Books() {
                     imageReadyCount={book.imageReadyCount}
                     packageTier={book.packageTier}
                     chapterCount={book.chapterCount}
+                    mainChapterCount={book.mainChapterCount}
+                    liteDisplayPrice={book.liteDisplayPrice}
                     onView={() => handleViewBook(book.id)}
-                    onDelete={() => {
-                      toast.success(`Book deleted`);
-                      booksQuery.refetch();
-                    }}
+                    onDelete={() => handleDeleteBook(book.id, book.title)}
                   />
                 ))}
             </div>

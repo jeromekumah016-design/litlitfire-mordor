@@ -11,8 +11,12 @@ export type Chapter = {
   role: "main" | "skip";
 };
 
+// Chapter / Part / Book / Act + optional number / roman / word ("CHAPTER ONE")
 const HEADING_RE =
-  /^(?:chapter|part|book|act|prologue|epilogue|introduction|preface|contents|table of contents)\b[\s.:IVXLCDM\d-]*/i;
+  /^(?:chapter|part|book|act|prologue|epilogue|introduction|preface|contents|table of contents)(?:[\s.:\-]+(?:[IVXLCDM]+|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))?[\s.:\-]*$/i;
+
+const SKIP_TITLE_RE =
+  /^(front matter|contents|table of contents|preface|introduction|copyright|dedication|acknowledg(e)?ments?|index|glossary|bibliography|about the author)\b/i;
 
 const ALL_CAPS_TITLE_RE = /^[A-Z0-9][A-Z0-9\s,'"«»\-:]{2,60}$/;
 
@@ -101,8 +105,7 @@ export function detectChaptersFromPageBreaks(pageTexts: string[]): Chapter[] {
         : `Chapter ${chapters.length + 1}`);
 
     const isFrontish =
-      /^(front matter|contents|table of contents|preface|introduction)$/i.test(title) ||
-      (combinedLen < 40 && b === 0);
+      SKIP_TITLE_RE.test(title.trim()) || (combinedLen < 40 && b === 0);
 
     chapters.push({
       chapterIndex: chapters.length,

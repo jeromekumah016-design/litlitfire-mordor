@@ -24,6 +24,8 @@ interface BookListCardProps {
   imageReadyCount?: number;
   packageTier?: "lite" | "upgraded" | string;
   chapterCount?: number;
+  mainChapterCount?: number;
+  liteDisplayPrice?: number;
   onDelete?: (id: number) => void;
   onView?: (id: number) => void;
 }
@@ -45,6 +47,8 @@ export const BookListCard = memo(function BookListCard({
   imageReadyCount = 0,
   packageTier = "lite",
   chapterCount = 0,
+  mainChapterCount = 0,
+  liteDisplayPrice,
   onDelete,
   onView,
 }: BookListCardProps) {
@@ -176,7 +180,13 @@ export const BookListCard = memo(function BookListCard({
         {chapterCount > 0 && packageTier !== "upgraded" ? (
           <span className="flex items-center gap-1">
             <BookOpen className="w-4 h-4" />
-            {chapterCount} chapter{chapterCount !== 1 ? "s" : ""}
+            {mainChapterCount > 0 ? mainChapterCount : chapterCount} chapter image
+            {(mainChapterCount || chapterCount) !== 1 ? "s" : ""}
+          </span>
+        ) : null}
+        {liteDisplayPrice != null && packageTier !== "upgraded" ? (
+          <span className="text-muted-foreground">
+            ~${Number(liteDisplayPrice).toFixed(2)} lite
           </span>
         ) : null}
         <span className="flex items-center gap-1 text-muted-foreground">

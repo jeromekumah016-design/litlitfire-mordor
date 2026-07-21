@@ -49,6 +49,19 @@ describe("detectChaptersFromPageBreaks", () => {
     expect(chapters[0].sourcePageTo).toBe(2);
     expect(chapters[0].role).toBe("main");
   });
+
+  it("detects CHAPTER ONE word form and skips Contents", () => {
+    const chapters = detectChaptersFromPageBreaks([
+      "Contents\nChapter 1 ............. 3\nChapter 2 ............. 10",
+      "CHAPTER ONE\nThe journey begins with a long enough block of narrative prose here",
+      "CHAPTER TWO\nLater events unfold with another long enough block of story text",
+    ]);
+    const contents = chapters.find((c) => /contents/i.test(c.title));
+    expect(contents?.role).toBe("skip");
+    const main = chapters.filter((c) => c.role === "main");
+    expect(main.length).toBeGreaterThanOrEqual(2);
+    expect(main.some((c) => /ONE|Chapter/i.test(c.title))).toBe(true);
+  });
 });
 
 describe("unitsFromChapters", () => {

@@ -68,17 +68,50 @@ export default function ImageGalleryView() {
 
   const book = bookDetailsQuery.data as any;
   const failedPages = book.pages.filter((page: any) => page.processingStatus === "error");
+  const isLite = (book.packageTier || "lite") !== "upgraded";
   const generatedImages = book.pages
     .filter((page: any) => !!page.generatedImageUrl)
-    .map((page: any) => ({
-      id: String(page.id),
-      pageNumber: page.pageNumber,
-      url: page.generatedImageUrl as string,
-      title: (page.sceneTitle as string | undefined) || `Page ${page.pageNumber}`,
-      subtitle: page.sourcePage
-        ? `Scene ${page.pageNumber} • from page ${page.sourcePage}`
-        : undefined,
-    }));
+    .map((page: any) => {
+      const structured = page.promptStructured as
+        | {
+            chapterTitle?: string;
+            chapterIndex?: number;
+            sourcePages?: number[];
+            packageTier?: string;
+            unitTitle?: string;
+          }
+        | null
+        | undefined;
+      const chapterTitle =
+        structured?.chapterTitle ||
+        structured?.unitTitle ||
+        (page.sceneTitle as string | undefined);
+      const range =
+        structured?.sourcePages && structured.sourcePages.length >= 2
+          ? structured.sourcePages
+          : null;
+      const title = chapterTitle
+        ? structured?.chapterIndex != null
+          ? `${chapterTitle}`
+          : chapterTitle
+        : `Page ${page.pageNumber}`;
+      const subtitle = chapterTitle
+        ? range
+          ? `Lite · chapter pages ${range[0]}–${range[1]}`
+          : isLite
+            ? `Lite · chapter · anchor p.${page.pageNumber}`
+            : `Page ${page.pageNumber}`
+        : page.sourcePage
+          ? `Scene ${page.pageNumber} • from page ${page.sourcePage}`
+          : undefined;
+      return {
+        id: String(page.id),
+        pageNumber: page.pageNumber,
+        url: page.generatedImageUrl as string,
+        title,
+        subtitle,
+      };
+    });
 
   if (generatedImages.length === 0) {
     return (
@@ -132,7 +165,13 @@ export default function ImageGalleryView() {
                 </h1>
               </div>
               <p className="text-sm text-accent/70">
-                {generatedImages.length} of {(book as any).pageCount} pages transformed into visual art
+                {isLite
+                  ? `${generatedImages.length} chapter illustration${generatedImages.length !== 1 ? "s" : ""} (Lite package)${
+                      book.chapterCount
+                        ? ` · ${book.chapterCount} chapters detected`
+                        : ""
+                    } · ${book.pageCount} source pages`
+                  : `${generatedImages.length} of ${book.pageCount} pages transformed into visual art`}
               </p>
             </div>
           </div>

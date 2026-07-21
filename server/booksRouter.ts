@@ -10,7 +10,7 @@ import {
   renderApprovedImages,
 } from "./gatePipeline";
 import { derivePipelinePhase, type PipelinePhase } from "./readingPipeline";
-import { calculatePrice } from "./pricingService";
+import { calculatePrice, calculateLiteDisplayPrice } from "./pricingService";
 import {
   PIPELINE_MAX_PAGES,
   evaluateUserDailyRenderCap,
@@ -100,6 +100,8 @@ type BookListItem = {
   createdAt: Date;
   packageTier: "lite" | "upgraded";
   chapterCount: number;
+  mainChapterCount: number;
+  liteDisplayPrice: number;
   pipelinePhase: PipelinePhase;
   pipelineLabel: string;
   promptReadyCount: number;
@@ -143,6 +145,8 @@ type BookDetailsResult = {
   generationMode: string;
   packageTier: "lite" | "upgraded";
   chapterCount: number;
+  mainChapterCount: number;
+  liteDisplayPrice: number;
   storyBible?: unknown;
   readingProfile?: unknown;
   pipelinePhase: PipelinePhase;
@@ -320,12 +324,16 @@ export const booksRouter = router({
             const pages = (await getBookPages(book.id)) || [];
             const phase = derivePipelinePhase(book.processingStatus, pages);
             const profile = (book as any).readingProfile as
-              | { chapters?: unknown[] }
+              | { chapters?: Array<{ role?: string }> }
               | null
               | undefined;
-            const chapterCount = Array.isArray(profile?.chapters)
-              ? profile!.chapters!.length
-              : phase.promptReadyCount || 0;
+            const chapters = Array.isArray(profile?.chapters) ? profile!.chapters! : [];
+            const chapterCount = chapters.length;
+            const mainChapterCount =
+              chapters.filter((c) => c.role === "main").length || phase.promptReadyCount || 0;
+            const liteDisplayPrice = calculateLiteDisplayPrice(
+              mainChapterCount > 0 ? mainChapterCount : 1
+            );
             return {
               id: book.id,
               title: book.title,
@@ -338,6 +346,8 @@ export const booksRouter = router({
                 | "lite"
                 | "upgraded",
               chapterCount,
+              mainChapterCount,
+              liteDisplayPrice,
               pipelinePhase: phase.phase,
               pipelineLabel: phase.label,
               promptReadyCount: phase.promptReadyCount,
@@ -427,16 +437,24 @@ export const booksRouter = router({
         }
         const phase = derivePipelinePhase(book.processingStatus, pageItems);
         const profile = (book as any).readingProfile as
-          | { chapters?: unknown[] }
+          | { chapters?: Array<{ role?: string }> }
           | null
           | undefined;
-        const chapterCount = Array.isArray(profile?.chapters) ? profile!.chapters!.length : 0;
+        const chapters = Array.isArray(profile?.chapters) ? profile!.chapters! : [];
+        const chapterCount = chapters.length;
+        const mainChapterCount =
+          chapters.filter((c) => c.role === "main").length || phase.promptReadyCount || 0;
+        const liteDisplayPrice = calculateLiteDisplayPrice(
+          mainChapterCount > 0 ? mainChapterCount : 1
+        );
         const result: BookDetailsResult = {
           id: book.id, title: book.title, description: book.description, pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus,
           generationMode: (book as any).generationMode ?? "page",
           packageTier: (book as any).packageTier === "upgraded" ? "upgraded" : "lite",
           chapterCount,
+          mainChapterCount,
+          liteDisplayPrice,
           storyBible: (book as any).storyBible ?? null,
           readingProfile: (book as any).readingProfile ?? null,
           pipelinePhase: phase.phase,
