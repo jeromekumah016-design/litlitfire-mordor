@@ -1,29 +1,19 @@
 /**
- * Autonomous offline pipeline loop
- * =================================
+ * Autonomous two-phase offline pipeline loop (functional bar)
+ * ===========================================================
  *
- * Runs the full book → extract → prompt → image loop with ZERO paid API spend:
- *   OFFLINE_MODE (or missing keys) → LLM stubs + SVG placeholders + local storage.
+ * upload/extract → transcribe (storyBible + prompts) → approve all →
+ * renderApprovedImages → verify real storage keys + image URLs.
  *
- * Requires:
- *   - DATABASE_URL pointing at Postgres (schema applied via `pnpm db:push`)
- *   - JWT_SECRET (≥16 chars) only if you also exercise HTTP demo login
+ * OFFLINE_MODE forced (zero paid spend) unless OFFLINE_MODE=false and keys set.
  *
- * Usage:
  *   pnpm loop
- *   # or
- *   OFFLINE_MODE=true DATABASE_URL=... pnpm exec tsx scripts/autonomous-loop.ts
  *
- * Exit codes:
- *   0  success (at least one page/scene done with an image URL)
- *   1  pipeline ran but produced no usable images
- *   2  misconfigured env / DB unavailable
- *   3  unexpected error
+ * Exit: 0 ok · 1 no images · 2 misconfig · 3 error
  */
 
 import "dotenv/config";
 
-// Force offline stubs before any server module reads ENV.
 if (process.env.OFFLINE_MODE !== "false") {
   process.env.OFFLINE_MODE = "true";
 }
@@ -38,24 +28,17 @@ function fail(code: number, msg: string): never {
 }
 
 function buildMultiPagePdf(pageTexts: string[]): Buffer {
-  // Minimal multi-page PDF 1.4 with Helvetica text per page (pdfjs can extract).
   const objects: string[] = [];
-  const kids: string[] = [];
   let objNum = 1;
-
   const catalogNum = objNum++;
   const pagesNum = objNum++;
-
   const pageObjNums: number[] = [];
   const contentObjNums: number[] = [];
   const fontNum = objNum++;
-
   for (let i = 0; i < pageTexts.length; i++) {
     pageObjNums.push(objNum++);
     contentObjNums.push(objNum++);
   }
-
-  // Escape PDF string literals
   const esc = (s: string) =>
     s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 
@@ -70,7 +53,6 @@ function buildMultiPagePdf(pageTexts: string[]): Buffer {
   for (let i = 0; i < pageTexts.length; i++) {
     const pageN = pageObjNums[i];
     const contentN = contentObjNums[i];
-    // Wrap long text into a few Tj lines
     const words = pageTexts[i].split(/\s+/);
     const lines: string[] = [];
     let line = "";
@@ -78,9 +60,7 @@ function buildMultiPagePdf(pageTexts: string[]): Buffer {
       if ((line + " " + w).trim().length > 70) {
         lines.push(line.trim());
         line = w;
-      } else {
-        line = (line + " " + w).trim();
-      }
+      } else line = (line + " " + w).trim();
     }
     if (line) lines.push(line);
     const streamBody =
@@ -112,7 +92,7 @@ function buildMultiPagePdf(pageTexts: string[]): Buffer {
 
 async function main() {
   console.log("═══════════════════════════════════════════════════════════");
-  console.log("  LiteralLiterature — autonomous offline pipeline loop");
+  console.log("  Two-phase autonomous loop: extract → transcribe → approve → render");
   console.log("═══════════════════════════════════════════════════════════");
   console.log(`  OFFLINE_MODE=${process.env.OFFLINE_MODE}`);
   console.log(`  DATABASE_URL=${process.env.DATABASE_URL ? "(set)" : "(missing)"}`);
@@ -120,127 +100,111 @@ async function main() {
   if (!process.env.DATABASE_URL) {
     fail(
       2,
-      "DATABASE_URL is required. Create a Neon/local Postgres DB, set it in .env, run `pnpm db:push`, then re-run `pnpm loop`."
+      "DATABASE_URL required. Set in .env, run `pnpm db:push`, then `pnpm loop`."
     );
   }
 
-  // Dynamic imports after env is set so ENV.offlineMode is true.
-  const { upsertUser, getUserByOpenId, createBook, getBook, getBookPages, getBookScenes } =
+  const { upsertUser, getUserByOpenId, createBook, getBook, getBookPages, getDb } =
     await import("../server/db");
-  const { processBookPipeline } = await import("../server/pipelineService");
+  const { extractAndStorePages, transcribeBook, setPagePromptApproval, renderApprovedImages } =
+    await import("../server/gatePipeline");
   const { storagePut } = await import("../server/storage");
   const { calculatePrice } = await import("../server/pricingService");
-  const { getDb } = await import("../server/db");
   const { isLLMOffline, isImageOffline, isStorageOffline } = await import(
     "../server/_core/offline"
   );
 
   console.log(
-    `  offline boundaries: llm=${isLLMOffline()} image=${isImageOffline()} storage=${isStorageOffline()}`
+    `  offline: llm=${isLLMOffline()} image=${isImageOffline()} storage=${isStorageOffline()}`
   );
 
-  const db = await getDb();
-  if (!db) fail(2, "Could not connect to database (getDb returned null).");
+  if (!(await getDb())) fail(2, "Database unavailable");
 
-  const openId = "demo_offline_user";
   await upsertUser({
-    openId,
+    openId: "demo_offline_user",
     name: "Demo User",
     email: "demo@local.dev",
     loginMethod: "demo",
     lastSignedIn: new Date(),
   });
-  const user = await getUserByOpenId(openId);
-  if (!user) fail(2, "Failed to upsert/load demo user.");
+  const user = await getUserByOpenId("demo_offline_user");
+  if (!user) fail(2, "Demo user missing");
 
   const pageTexts = [
-    "Chapter One. In a quiet riverside town, young Mara watched the morning mist rise over the oak bridge while the baker lit his oven.",
+    "Chapter One. In a quiet riverside town, young Mara watched the morning mist rise over the oak bridge while the baker lit his oven for the day.",
     "Chapter Two. Captain Ellis arrived with a weathered map and a story of a lost compass that always pointed toward home rather than north.",
     "Chapter Three. Together they crossed the bridge at dusk, lantern light catching gold on the water, determined to find the compass before winter.",
   ];
   const pdfBuffer = buildMultiPagePdf(pageTexts);
-  console.log(`\n📄 Built synthetic PDF: ${pageTexts.length} pages, ${pdfBuffer.length} bytes`);
-
   const stamp = Date.now();
-  const title = `Autonomous Loop ${stamp}`;
   const pdfKey = `books/${user.id}/loop-${stamp}.pdf`;
   const { url: pdfUrl } = await storagePut(pdfKey, pdfBuffer, "application/pdf");
-  const totalPrice = calculatePrice(pageTexts.length).toString();
 
   const book = await createBook({
     userId: user.id,
-    title,
-    description: "Autonomous offline loop smoke book",
+    title: `Two-phase Loop ${stamp}`,
+    description: "Functional bar autonomous loop",
     pdfFileKey: pdfKey,
     pdfFileUrl: pdfUrl,
     pageCount: pageTexts.length,
     processingStatus: "pending",
-    totalPrice,
+    totalPrice: calculatePrice(pageTexts.length).toString(),
   });
-  if (!book) fail(2, "createBook returned null — schema/DB issue?");
+  if (!book) fail(2, "createBook failed");
 
-  console.log(`📚 Book #${book.id} created (user ${user.id})`);
-  console.log("⚙️  Running processBookPipeline (offline stubs)...\n");
+  console.log(`\n① Extract/OCR book #${book.id}…`);
+  const ex = await extractAndStorePages(book.id, pdfBuffer);
+  console.log(`   extracted=${ex.extracted}`);
 
-  const t0 = Date.now();
-  let pipelineResult: { successCount: number; failureCount: number };
-  try {
-    pipelineResult = await processBookPipeline(book.id, pdfBuffer);
-  } catch (err) {
-    console.error(err);
-    fail(3, `processBookPipeline threw: ${err instanceof Error ? err.message : String(err)}`);
+  console.log("② Transcribe (storyBible + prompts)…");
+  const tr = await transcribeBook(book.id);
+  console.log(
+    `   transcribed=${tr.transcribed} errors=${tr.errors} biblePersisted=${tr.biblePersisted}`
+  );
+
+  const pagesAfter = await getBookPages(book.id);
+  console.log("③ Approve all prompt_ready pages…");
+  for (const p of pagesAfter) {
+    if (p.promptStatus === "prompt_ready") {
+      await setPagePromptApproval(p.id, true);
+      console.log(`   approved page ${p.pageNumber}`);
+    } else {
+      console.log(`   skip page ${p.pageNumber} status=${p.promptStatus}`);
+    }
   }
-  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
+  console.log("④ Render approved only (records real keys)…");
+  const rr = await renderApprovedImages(book.id);
+  console.log(`   rendered=${rr.rendered} skipped=${rr.skipped} errors=${rr.errors}`);
+
+  const finalPages = await getBookPages(book.id);
   const fresh = await getBook(book.id);
-  const pages = await getBookPages(book.id);
-  const scenes = await getBookScenes(book.id);
-  const mode = (fresh as { generationMode?: string } | null)?.generationMode ?? "page";
-
-  const imageRows =
-    mode === "scene"
-      ? scenes.map((s) => ({
-          n: s.sceneIndex + 1,
-          status: s.processingStatus,
-          prompt: s.prompt?.slice(0, 80),
-          image: s.generatedImageUrl,
-        }))
-      : pages.map((p) => ({
-          n: p.pageNumber,
-          status: p.processingStatus,
-          prompt: p.generatedPrompt?.slice(0, 80),
-          image: p.generatedImageUrl,
-        }));
-
   console.log("───────────────────────────────────────────────────────────");
-  console.log(`  mode=${mode}  bookStatus=${fresh?.processingStatus}`);
-  console.log(
-    `  pipeline: success=${pipelineResult.successCount} failure=${pipelineResult.failureCount}  (${elapsed}s)`
-  );
-  for (const row of imageRows) {
+  console.log(`  bookStatus=${fresh?.processingStatus} storyBible=${!!(fresh as any)?.storyBible}`);
+  for (const p of finalPages) {
     console.log(
-      `  #${row.n} status=${row.status} image=${row.image ? "yes" : "no"} prompt=${row.prompt ?? "(none)"}…`
+      `  p${p.pageNumber} prompt=${p.promptStatus} image=${p.imageStatus} key=${p.generatedImageFileKey ?? "—"} url=${p.generatedImageUrl ? "yes" : "no"}`
     );
   }
   console.log("───────────────────────────────────────────────────────────");
 
-  const doneWithImage = imageRows.filter((r) => r.status === "done" && r.image).length;
-  if (doneWithImage === 0) {
-    fail(
-      1,
-      `Loop finished but no rendered images (doneWithImage=0). Check offline storage / EmptyPageError / logs.`
-    );
+  const ok = finalPages.filter(
+    (p) =>
+      p.imageStatus === "image_ready" &&
+      p.generatedImageUrl &&
+      p.generatedImageFileKey &&
+      p.generatedImageFileKey.startsWith(`books/${book.id}/`)
+  );
+  if (ok.length === 0) {
+    fail(1, "No pages with image_ready + real book-scoped storage key");
   }
 
-  console.log(
-    `\n✅ Autonomous loop OK — ${doneWithImage}/${imageRows.length} images rendered offline.`
-  );
-  console.log(`   Book id=${book.id} title="${title}"`);
-  console.log(`   Offline files under .offline-storage/ (or OFFLINE_STORAGE_DIR)\n`);
+  console.log(`\n✅ Functional bar met offline: ${ok.length} photo(s) with real keys.\n`);
+  console.log("   For a LIVE DALL·E run: OFFLINE_MODE=false OPENAI_API_KEY=sk-... (+ storage keys) pnpm loop\n");
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((e) => {
+  console.error(e);
   process.exit(3);
 });

@@ -9,6 +9,8 @@ import {
   index,
   uniqueIndex,
   serial,
+  jsonb,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -19,6 +21,21 @@ export const retryStatusEnum = pgEnum("retry_status", ["pending", "processing", 
 export const jobTypeEnum = pgEnum("job_type", ["extract_pdf", "ocr", "generate_prompt", "generate_image"]);
 export const jobStatusEnum = pgEnum("job_status", ["pending", "processing", "completed", "failed"]);
 export const generationModeEnum = pgEnum("generation_mode", ["page", "scene"]);
+// Two-phase review gate (port plan / functional bar): prompts and images split.
+// "approved" is the only status that may enter renderApprovedImages.
+export const promptStatusEnum = pgEnum("page_prompt_status", [
+  "pending",
+  "transcribing",
+  "prompt_ready",
+  "approved",
+  "prompt_error",
+]);
+export const imageStatusEnum = pgEnum("page_image_status", [
+  "pending",
+  "generating",
+  "image_ready",
+  "image_error",
+]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -50,6 +67,8 @@ export const books = pgTable(
     // "scene" = multiple distinct scenes per book (scenes table). Controls
     // which table the pipeline writes to. No dual writes; no synthetic rows.
     generationMode: generationModeEnum("generationMode").default("page").notNull(),
+    // Persisted visual bible (StoryContext JSON). Built once in transcribe; reused on render.
+    storyBible: jsonb("storyBible"),
     totalPrice: numeric("totalPrice", { precision: 10, scale: 2 }).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -76,6 +95,11 @@ export const pages = pgTable(
     generatedImageFileKey: varchar("generatedImageFileKey", { length: 255 }),
     generatedImageUrl: varchar("generatedImageUrl", { length: 1024 }),
     processingStatus: pageStatusEnum("processingStatus").default("pending").notNull(),
+    // Split statuses for two-phase review gate (functional bar §2–3)
+    promptStatus: promptStatusEnum("promptStatus").default("pending").notNull(),
+    imageStatus: imageStatusEnum("imageStatus").default("pending").notNull(),
+    promptStructured: jsonb("promptStructured"),
+    skipSuggested: boolean("skipSuggested").default(false).notNull(),
     errorMessage: text("errorMessage"),
     retryCount: integer("retryCount").default(0).notNull(),
     maxRetries: integer("maxRetries").default(3).notNull(),
@@ -87,6 +111,8 @@ export const pages = pgTable(
   (table) => [
     index("pages_bookId_idx").on(table.bookId),
     index("pages_status_idx").on(table.processingStatus),
+    index("pages_prompt_status_idx").on(table.promptStatus),
+    index("pages_image_status_idx").on(table.imageStatus),
     index("pages_bookPage_idx").on(table.bookId, table.pageNumber),
   ]
 );

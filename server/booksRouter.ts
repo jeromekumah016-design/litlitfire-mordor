@@ -1,9 +1,14 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
-import { createBook, getUserBooks, getBook, getBookPages, getBookScenes, updateBook, updatePage, deleteBook } from "./db";
+import { createBook, getUserBooks, getBook, getBookPages, getBookScenes, getPage, updateBook, updatePage, deleteBook } from "./db";
 import { getPDFMetadata } from "./pdfService";
-import { processBookPipeline } from "./pipelineService";
+import {
+  extractAndStorePages,
+  transcribeBook,
+  setPagePromptApproval,
+  renderApprovedImages,
+} from "./gatePipeline";
 import { calculatePrice } from "./pricingService";
 import {
   PIPELINE_MAX_PAGES,
@@ -105,7 +110,11 @@ type BookDetailsPageItem = {
   ocrText: string | null;
   generatedPrompt: string | null;
   generatedImageUrl: string | null;
+  generatedImageFileKey?: string | null;
   processingStatus: string;
+  promptStatus?: string;
+  imageStatus?: string;
+  skipSuggested?: boolean;
   errorMessage: string | null;
   retryCount: number;
   maxRetries: number;
@@ -123,6 +132,7 @@ type BookDetailsResult = {
   totalPrice: number;
   processingStatus: string;
   generationMode: string;
+  storyBible?: unknown;
   pages: BookDetailsPageItem[];
   createdAt: Date;
 };
@@ -163,30 +173,28 @@ export const booksRouter = router({
         const pdfKey = `books/${userId}/${Date.now()}-${input.title.replace(/\s+/g, "-")}.pdf`;
         const { url: pdfUrl } = await storagePut(pdfKey, pdfBuffer, "application/pdf");
 
-        // Always create as pending. Auto-start of the full render pipeline is
-        // gated by the per-user daily render page-unit cap (audit P0 C1).
+        // Functional bar §1: upload stores PDF + extracts/OCRs page text ONLY.
+        // No prompts, no DALL·E. Transcribe + approve + render are separate steps.
         const book = await createBook({ userId, title: input.title, description: input.description, pdfFileKey: pdfKey, pdfFileUrl: pdfUrl, pageCount: metadata.totalPages, processingStatus: "pending", totalPrice });
         if (!book) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Book record could not be created" });
 
         invalidateUserCache(userId);
 
-        // Per-user only: checkUserDailyRenderCap → getUserBooks(userId).
-        const autoStart = await checkUserDailyRenderCap(userId, {
-          id: book.id,
-          pageCount: metadata.totalPages,
-        });
-
-        let processingStatus: "pending" | "processing" = "pending";
-        if (autoStart.allowed) {
-          processBookPipeline(book.id, pdfBuffer, undefined, input.imageParams).catch((error) => {
-            console.error("[Books Router] Background processing error:", error);
+        let extracted = 0;
+        try {
+          const result = await extractAndStorePages(book.id, pdfBuffer);
+          extracted = result.extracted;
+        } catch (extractErr) {
+          console.error("[Books Router] Extract/OCR failed:", extractErr);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: extractErr instanceof Error ? extractErr.message : "Failed to extract PDF text",
           });
-          processingStatus = "processing";
-        } else {
-          console.warn(
-            `[Books Router] Upload auto-render blocked for user ${userId}: used=${autoStart.used} + book=${autoStart.bookUnits} > cap=${autoStart.cap}. Book ${book.id} left pending. processPdf/retryFailedPages use the same per-user daily budget.`
-          );
         }
+
+        // Stash optional render params on the book description side-channel is wrong;
+        // client will pass imageParams to renderApprovedImages when rendering.
+        void input.imageParams;
 
         const pagesWillProcess = Math.min(metadata.totalPages, PIPELINE_MAX_PAGES);
         const pageCapWarning = metadata.totalPages > PIPELINE_MAX_PAGES ? `Only the first ${PIPELINE_MAX_PAGES} of ${metadata.totalPages} pages will be processed.` : undefined;
@@ -196,16 +204,13 @@ export const booksRouter = router({
           title: book.title,
           pageCount: book.pageCount,
           pagesWillProcess,
+          pagesExtracted: extracted,
           pageCapWarning,
           totalPrice: Number(book.totalPrice),
-          processingStatus,
-          autoRenderStarted: autoStart.allowed,
-          dailyRender: {
-            used: autoStart.used,
-            cap: autoStart.cap,
-            bookUnits: autoStart.bookUnits,
-            remaining: autoStart.remaining,
-          },
+          processingStatus: "pending" as const,
+          autoRenderStarted: false,
+          phase: "extracted" as const,
+          message: "PDF stored and text extracted. Run transcribe → approve → render.",
         };
       } catch (error) {
         console.error("[Books Router] Upload error:", error);
@@ -222,25 +227,9 @@ export const booksRouter = router({
         const book = await getBook(input.bookId);
         if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
         if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to process this book" });
-        if (book.processingStatus === "processing" || book.processingStatus === "completed") {
-          return { bookId: input.bookId, status: book.processingStatus, message: `PDF is ${book.processingStatus}` };
-        }
-
-        // Same per-user daily bucket as upload auto-trigger (exclude this book
-        // so a reprocess of an already-started title is not double-counted).
-        const capDecision = await checkUserDailyRenderCap(userId, {
-          id: book.id,
-          pageCount: book.pageCount,
-        });
-        if (!capDecision.allowed) {
-          throw dailyRenderCapError(capDecision, "processPdf");
-        }
-
-        // H5: never mark "processing" until the PDF bytes are in hand. A prior
-        // bug set processing first, then logged fetch failures and left the
-        // book permanently stuck (re-trigger refused while status=processing).
+        // Re-extract only — does NOT bypass the approve gate (no full pipeline).
         if (!book.pdfFileUrl) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Book has no pdfFileUrl; cannot start processing" });
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Book has no pdfFileUrl; cannot extract" });
         }
         let pdfBuffer: Buffer;
         try {
@@ -254,20 +243,13 @@ export const booksRouter = router({
             message: fetchErr instanceof Error ? `Could not fetch PDF: ${fetchErr.message}` : "Could not fetch PDF",
           });
         }
-        await updateBook(input.bookId, { processingStatus: "processing" });
-        processBookPipeline(book.id, pdfBuffer).catch((error) => {
-          console.error("[Books Router] processPdf pipeline error:", error);
-        });
+        const extracted = await extractAndStorePages(book.id, pdfBuffer);
+        invalidateUserCache(userId);
         return {
           bookId: input.bookId,
-          status: "processing",
-          message: "PDF processing started",
-          dailyRender: {
-            used: capDecision.used,
-            cap: capDecision.cap,
-            bookUnits: capDecision.bookUnits,
-            remaining: capDecision.remaining,
-          },
+          status: "pending",
+          message: `Extracted ${extracted.extracted} page(s). Run Stage 1 (transcribe) next.`,
+          pagesExtracted: extracted.extracted,
         };
       } catch (error) {
         console.error("[Books Router] Process PDF error:", error);
@@ -326,6 +308,7 @@ export const booksRouter = router({
             ocrText: sc.description,
             generatedPrompt: sc.prompt,
             generatedImageUrl: sc.generatedImageUrl,
+            generatedImageFileKey: sc.generatedImageFileKey,
             processingStatus: sc.processingStatus,
             errorMessage: sc.errorMessage,
             retryCount: sc.retryCount,
@@ -337,12 +320,30 @@ export const booksRouter = router({
           }));
         } else {
           const bookPages = await getBookPages(input.bookId);
-          pageItems = bookPages.map((page) => ({ id: page.id, pageNumber: page.pageNumber, thumbnailUrl: page.thumbnailUrl, ocrText: page.ocrText, generatedPrompt: page.generatedPrompt, generatedImageUrl: page.generatedImageUrl, processingStatus: page.processingStatus, errorMessage: page.errorMessage, retryCount: page.retryCount, maxRetries: page.maxRetries, lastRetryAt: page.lastRetryAt, nextRetryAt: page.nextRetryAt }));
+          pageItems = bookPages.map((page) => ({
+            id: page.id,
+            pageNumber: page.pageNumber,
+            thumbnailUrl: page.thumbnailUrl,
+            ocrText: page.ocrText,
+            generatedPrompt: page.generatedPrompt,
+            generatedImageUrl: page.generatedImageUrl,
+            generatedImageFileKey: page.generatedImageFileKey,
+            processingStatus: page.processingStatus,
+            promptStatus: page.promptStatus,
+            imageStatus: page.imageStatus,
+            skipSuggested: page.skipSuggested,
+            errorMessage: page.errorMessage,
+            retryCount: page.retryCount,
+            maxRetries: page.maxRetries,
+            lastRetryAt: page.lastRetryAt,
+            nextRetryAt: page.nextRetryAt,
+          }));
         }
         const result: BookDetailsResult = {
           id: book.id, title: book.title, description: book.description, pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus,
           generationMode: (book as any).generationMode ?? "page",
+          storyBible: (book as any).storyBible ?? null,
           pages: pageItems,
           createdAt: book.createdAt,
         };
@@ -414,57 +415,40 @@ export const booksRouter = router({
         if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
         if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to retry this book" });
         const pages = await getBookPages(input.bookId);
-        const failedPages = pages.filter((p) => p.processingStatus === "error");
-        if (failedPages.length === 0) return { success: true, message: "No failed pages to retry", retriedCount: 0 };
+        // Re-render only: approved pages with image errors, using persisted prompts.
+        // Does NOT re-run OCR/transcribe or regenerate prompts (audit C4 root defect).
+        const failedPages = pages.filter(
+          (p) =>
+            p.promptStatus === "approved" &&
+            (p.imageStatus === "image_error" || p.processingStatus === "error")
+        );
+        if (failedPages.length === 0) {
+          return { success: true, message: "No approved failed pages to re-render", retriedCount: 0 };
+        }
 
-        // Same per-user daily bucket as upload / processPdf.
         const capDecision = await checkUserDailyRenderCap(userId, {
           id: book.id,
-          pageCount: book.pageCount,
+          pageCount: failedPages.length,
         });
         if (!capDecision.allowed) {
           throw dailyRenderCapError(capDecision, "retryFailedPages");
         }
 
-        // H5: fetch PDF first. Do not reset pages or mark book "processing"
-        // until bytes are in hand — otherwise a fetch failure leaves pages
-        // pending / book processing with no pipeline running.
-        if (!book.pdfFileUrl) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Book has no pdfFileUrl; cannot retry pipeline",
-          });
-        }
-        let pdfBuffer: Buffer;
-        try {
-          const res = await fetch(book.pdfFileUrl);
-          if (!res.ok) throw new Error(`Failed to fetch PDF (status ${res.status})`);
-          pdfBuffer = Buffer.from(await res.arrayBuffer());
-        } catch (fetchErr) {
-          console.error("[Books Router] retryFailedPages fetch error:", fetchErr);
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: fetchErr instanceof Error ? `Could not fetch PDF: ${fetchErr.message}` : "Could not fetch PDF",
-          });
-        }
-
         for (const page of failedPages) {
-          // Reset retryCount to 0 so each page gets a fresh retry budget.
-          // Incrementing it here would permanently exhaust auto-retry on pages
-          // that have already hit maxRetries, making them unrecoverable.
-          await updatePage(page.id, { processingStatus: "pending", errorMessage: null, retryCount: 0 });
+          await updatePage(page.id, {
+            imageStatus: "pending",
+            processingStatus: "pending",
+            errorMessage: null,
+            retryCount: 0,
+          });
         }
-        await updateBook(input.bookId, { processingStatus: "processing" });
         invalidateUserCache(userId);
 
-        processBookPipeline(book.id, pdfBuffer).catch((err) => {
-          console.error("[Books Router] retryFailedPages pipeline error:", err);
-        });
-
+        const result = await renderApprovedImages(book.id);
         return {
           success: true,
-          message: `Retrying ${failedPages.length} failed page(s)`,
-          retriedCount: failedPages.length,
+          message: `Re-rendered ${result.rendered} approved page(s)`,
+          retriedCount: result.rendered,
           dailyRender: {
             used: capDecision.used,
             cap: capDecision.cap,
@@ -476,6 +460,120 @@ export const booksRouter = router({
         console.error("[Books Router] Retry failed pages error:", error);
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to retry pages" });
+      }
+    }),
+
+  /**
+   * Stage 1 — Transcribe: build+persist storyBible once, generate per-page prompts.
+   * Does NOT call DALL·E.
+   */
+  transcribePages: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const userId = ctx.user.id;
+        const book = await getBook(input.bookId);
+        if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Not your book" });
+
+        // Ensure pages exist (upload may have failed mid-extract)
+        let pages = await getBookPages(input.bookId);
+        if (pages.length === 0 && book.pdfFileUrl) {
+          const pdfResp = await fetch(book.pdfFileUrl);
+          if (!pdfResp.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Could not re-fetch PDF for extract" });
+          const buf = Buffer.from(await pdfResp.arrayBuffer());
+          await extractAndStorePages(book.id, buf);
+          pages = await getBookPages(input.bookId);
+        }
+        if (pages.length === 0) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No pages to transcribe" });
+        }
+
+        const result = await transcribeBook(input.bookId);
+        invalidateUserCache(userId);
+        return { ...result, message: "Transcribe complete — review and approve prompts before render" };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "Transcribe failed",
+        });
+      }
+    }),
+
+  /**
+   * Human review gate — sets promptStatus to "approved" (or back to prompt_ready).
+   * Server-side only; render refuses anything not approved.
+   */
+  setPromptApproved: protectedProcedure
+    .input(z.object({ pageId: z.number(), approved: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const userId = ctx.user.id;
+        const page = await getPage(input.pageId);
+        if (!page) throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+        const book = await getBook(page.bookId);
+        if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Not your book" });
+
+        const result = await setPagePromptApproval(input.pageId, input.approved);
+        invalidateUserCache(userId);
+        return result;
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "Approve failed",
+        });
+      }
+    }),
+
+  /**
+   * Stage 2 — Render: DALL·E only for pages with promptStatus === "approved".
+   * Records real generatedImageFileKey. Subject to daily render cap.
+   */
+  renderApprovedImages: protectedProcedure
+    .input(z.object({ bookId: z.number(), imageParams: imageGenParamsSchema }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const userId = ctx.user.id;
+        const book = await getBook(input.bookId);
+        if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Not your book" });
+
+        const pages = await getBookPages(input.bookId);
+        const approvedCount = pages.filter((p) => p.promptStatus === "approved").length;
+        if (approvedCount === 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "No approved pages — approve at least one prompt before render",
+          });
+        }
+
+        const capDecision = await checkUserDailyRenderCap(userId, {
+          id: book.id,
+          pageCount: approvedCount,
+        });
+        if (!capDecision.allowed) throw dailyRenderCapError(capDecision, "renderApprovedImages");
+
+        const result = await renderApprovedImages(input.bookId, input.imageParams);
+        invalidateUserCache(userId);
+        return {
+          ...result,
+          dailyRender: {
+            used: capDecision.used,
+            cap: capDecision.cap,
+            bookUnits: capDecision.bookUnits,
+            remaining: capDecision.remaining,
+          },
+          message: `Rendered ${result.rendered} approved page(s)`,
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "Render failed",
+        });
       }
     }),
 

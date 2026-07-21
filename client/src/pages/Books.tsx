@@ -23,21 +23,21 @@ export default function Books() {
     { bookId: selectedBookId! },
     { enabled: !!selectedBookId }
   );
-  const processPdfMutation = trpc.books.processPdf.useMutation({
+  const transcribeMutation = trpc.books.transcribePages.useMutation({
     onSuccess: (data) => {
-      toast.success(`Processing started for book ${data.bookId}`);
+      toast.success(data.message ?? `Transcribed book ${data.bookId}`);
       booksQuery.refetch();
       if (selectedBookId) {
         bookDetailsQuery.refetch();
       }
     },
     onError: (error) => {
-      toast.error(`Processing failed: ${error.message}`);
+      toast.error(`Transcribe failed: ${error.message}`);
     },
   });
 
-  const handleProcessPdf = (bookId: number) => {
-    processPdfMutation.mutate({ bookId });
+  const handleTranscribe = (bookId: number) => {
+    transcribeMutation.mutate({ bookId });
   };
 
   const handleViewBook = (bookId: number) => {
@@ -66,11 +66,7 @@ export default function Books() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main content area now uses the dedicated reading dashboard for pages before photo generation */}
           <div className="lg:col-span-3 space-y-6">
-            <BookPageReadingDashboard
-              book={book as any}
-              onStartGeneration={() => handleProcessPdf((book as any).id)}
-              isGenerating={processPdfMutation.isPending}
-            />
+            <BookPageReadingDashboard book={book as any} />
 
             <DevModeDiagnostics bookId={(book as any).id} />
           </div>
@@ -102,19 +98,19 @@ export default function Books() {
 
                 {(book as any).processingStatus === "pending" && (
                   <Button
-                    onClick={() => handleProcessPdf((book as any).id)}
-                    disabled={processPdfMutation.isPending}
+                    onClick={() => handleTranscribe((book as any).id)}
+                    disabled={transcribeMutation.isPending}
                     className="w-full"
                   >
-                    {processPdfMutation.isPending ? (
+                    {transcribeMutation.isPending ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
+                        Transcribing...
                       </>
                     ) : (
                       <>
                         <Play className="mr-2 h-4 w-4" />
-                        Start Processing
+                        Stage 1: Transcribe
                       </>
                     )}
                   </Button>
