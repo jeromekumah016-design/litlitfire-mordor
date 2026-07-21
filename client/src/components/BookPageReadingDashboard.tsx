@@ -28,6 +28,13 @@ interface Page {
   imageStatus?: string;
   skipSuggested?: boolean;
   errorMessage?: string | null;
+  promptStructured?: {
+    chapterTitle?: string;
+    chapterIndex?: number;
+    sourcePages?: number[];
+    packageTier?: string;
+    unitTitle?: string;
+  } | null;
 }
 
 interface BookPageReadingDashboardProps {
@@ -40,6 +47,8 @@ interface BookPageReadingDashboardProps {
     readingProfile?: unknown;
     pipelinePhase?: string;
     pipelineLabel?: string;
+    packageTier?: string;
+    chapterCount?: number;
     pages: Page[];
   };
   /** @deprecated use Stage buttons; kept for call-site compat */
@@ -70,7 +79,8 @@ export default function BookPageReadingDashboard({
   const stage1Mut = trpc.books.transcribePages.useMutation({
     onSuccess: (data) => {
       toast.success(
-        `Built ${data.transcribed} prompt(s)` +
+        `Lite: ${data.transcribed} chapter prompt(s)` +
+          (data.chapterCount != null ? ` · ${data.chapterCount} chapters` : "") +
           (data.biblePersisted ? " · story bible saved" : " · no bible (empty text?)") +
           (data.genres?.length ? ` · ${data.genres.join(", ")}` : "")
       );
@@ -163,16 +173,31 @@ export default function BookPageReadingDashboard({
 
   const nextStepBanner =
     phase === "reading" || isReading
-      ? "Reading book (genre → plot → prompts)… this page will update when prompts are ready."
+      ? "Reading book (genre → chapters → prompts)… lite package, one image per chapter."
       : phase === "needs_approve" || (promptReadyOnlyCount > 0 && approvedCount === 0)
-        ? `Next: approve prompts (${promptReadyOnlyCount} ready), then Stage 2 generate.`
+        ? `Next: approve chapter prompts (${promptReadyOnlyCount} ready), then Stage 2 generate.`
         : phase === "ready_to_render" || (approvedCount > 0 && imageReadyCount < approvedCount)
-          ? `Next: Stage 2 Generate Photos (${approvedCount} approved).`
+          ? `Next: Stage 2 Generate Photos (${approvedCount} chapter${approvedCount === 1 ? "" : "s"} approved).`
           : phase === "photos_ready"
             ? "Photos ready — open the gallery when you want."
             : phase === "extracted" || (hasPages && promptReadyCount === 0)
-              ? "Next: Stage 1 builds multi-pass prompts (or wait if upload auto-read is running)."
+              ? "Next: Stage 1 builds chapter prompts (or wait if upload auto-read is running)."
               : null;
+
+  const chapterLabel = (p: Page) => {
+    const s = p.promptStructured;
+    if (s?.chapterTitle) {
+      const range =
+        s.sourcePages && s.sourcePages.length >= 2
+          ? ` · p.${s.sourcePages[0]}–${s.sourcePages[1]}`
+          : "";
+      return `${s.chapterTitle}${range}`;
+    }
+    if (p.skipSuggested && p.errorMessage?.includes("chapter")) {
+      return `Page ${p.pageNumber} (in chapter)`;
+    }
+    return `Page ${p.pageNumber}`;
+  };
 
   return (
     <div className="space-y-4">
@@ -185,8 +210,8 @@ export default function BookPageReadingDashboard({
             </h2>
             <p className="text-sm text-muted-foreground">
               {book.pipelineLabel ||
-                "Stage 1: multi-pass reading → approve → Stage 2: generate photos"}
-              {" · one image per page number"}
+                "Lite: chapters from page breaks → approve → Stage 2 generate"}
+              {" · one image per chapter"}
               {book.storyBible ? " · story bible saved" : ""}
             </p>
           </div>
@@ -200,7 +225,7 @@ export default function BookPageReadingDashboard({
           >
             {stage1Mut.isPending || isReading
               ? "Reading…"
-              : "Stage 1: Build prompts"}
+              : "Stage 1: Build chapter prompts"}
           </Button>
           <Button
             onClick={() => approveAllMut.mutate({ bookId: book.id })}
@@ -210,7 +235,7 @@ export default function BookPageReadingDashboard({
           >
             {approveAllMut.isPending
               ? "Approving…"
-              : `Approve all (${promptReadyOnlyCount})`}
+              : `Approve all chapters (${promptReadyOnlyCount})`}
           </Button>
           <Button
             onClick={() => stage2Mut.mutate({ bookId: book.id })}
@@ -219,7 +244,7 @@ export default function BookPageReadingDashboard({
           >
             {stage2Mut.isPending
               ? "Rendering…"
-              : `Stage 2: Generate Photos (${approvedCount} approved)`}
+              : `Stage 2: Generate Photos (${approvedCount} chapters)`}
           </Button>
         </div>
       </div>
@@ -229,6 +254,14 @@ export default function BookPageReadingDashboard({
           {nextStepBanner}
         </div>
       )}
+
+      <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        <strong className="text-foreground">Lite package</strong> — illustrations by{" "}
+        <strong className="text-foreground">chapter</strong> (page breaks + headings).{" "}
+        <span className="opacity-80">
+          Upgraded package (one image per page) is paid and not available yet.
+        </span>
+      </div>
 
       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
         <span>Pages: {pages.length}</span>
@@ -267,7 +300,7 @@ export default function BookPageReadingDashboard({
                       : "hover:bg-muted/50"
                   }`}
                 >
-                  <span className="font-medium">Page {p.pageNumber}</span>
+                  <span className="font-medium truncate">{chapterLabel(p)}</span>
                   {getStatusBadge(p)}
                 </button>
               ))}
@@ -277,7 +310,7 @@ export default function BookPageReadingDashboard({
           <Card className="lg:col-span-2 border-accent/20">
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-lg literary-heading">
-                Page {currentPage?.pageNumber ?? "—"}
+                {currentPage ? chapterLabel(currentPage) : "—"}
               </CardTitle>
               <div className="flex items-center gap-2">
                 <Button
@@ -326,7 +359,7 @@ export default function BookPageReadingDashboard({
                           }
                         />
                         <CheckCircle2 className="h-4 w-4 text-amber-600" />
-                        Approve for photo generation
+                        Approve chapter for photo generation
                       </label>
                     )}
                   </div>

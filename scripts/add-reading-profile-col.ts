@@ -9,7 +9,17 @@ async function main() {
   await c.query(
     `ALTER TABLE books ADD COLUMN IF NOT EXISTS "readingProfile" jsonb`
   );
-  console.log("readingProfile column ensured");
+  await c.query(`
+    DO $$ BEGIN
+      CREATE TYPE "public"."package_tier" AS ENUM('lite', 'upgraded');
+    EXCEPTION
+      WHEN duplicate_object THEN null;
+    END $$;
+  `);
+  await c.query(`
+    ALTER TABLE books ADD COLUMN IF NOT EXISTS "packageTier" "package_tier" DEFAULT 'lite' NOT NULL
+  `);
+  console.log("readingProfile + packageTier columns ensured");
   await c.end();
 }
 

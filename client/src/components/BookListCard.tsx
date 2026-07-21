@@ -22,6 +22,8 @@ interface BookListCardProps {
   promptReadyCount?: number;
   approvedCount?: number;
   imageReadyCount?: number;
+  packageTier?: "lite" | "upgraded" | string;
+  chapterCount?: number;
   onDelete?: (id: number) => void;
   onView?: (id: number) => void;
 }
@@ -41,6 +43,8 @@ export const BookListCard = memo(function BookListCard({
   promptReadyCount = 0,
   approvedCount = 0,
   imageReadyCount = 0,
+  packageTier = "lite",
+  chapterCount = 0,
   onDelete,
   onView,
 }: BookListCardProps) {
@@ -165,10 +169,18 @@ export const BookListCard = memo(function BookListCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-4 text-sm text-gray-600 mb-4">
-        <span className="flex items-center gap-1">
-          <BookOpen className="w-4 h-4" />
-          {pageCount} page{pageCount !== 1 ? "s" : ""}
+      <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 mb-4">
+        <span className="flex items-center gap-1 rounded-full bg-amber-50 text-amber-900 px-2 py-0.5 border border-amber-200/60 text-xs font-medium">
+          {packageTier === "upgraded" ? "Upgraded · pages" : "Lite · chapters"}
+        </span>
+        {chapterCount > 0 && packageTier !== "upgraded" ? (
+          <span className="flex items-center gap-1">
+            <BookOpen className="w-4 h-4" />
+            {chapterCount} chapter{chapterCount !== 1 ? "s" : ""}
+          </span>
+        ) : null}
+        <span className="flex items-center gap-1 text-muted-foreground">
+          {pageCount} source page{pageCount !== 1 ? "s" : ""}
         </span>
         <span className="flex items-center gap-1">
           <Clock className="w-4 h-4" />

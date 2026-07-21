@@ -105,6 +105,8 @@ export type TranscribeResult = {
   genres?: string[];
   mainUnits?: number;
   skippedPages?: number;
+  packageTier?: "lite" | "upgraded";
+  chapterCount?: number;
 };
 
 /**
@@ -122,6 +124,8 @@ export async function transcribeBook(bookId: number): Promise<TranscribeResult> 
     genres: result.genres,
     mainUnits: result.mainUnits,
     skippedPages: result.skippedPages,
+    packageTier: result.packageTier,
+    chapterCount: result.chapterCount,
   };
 }
 

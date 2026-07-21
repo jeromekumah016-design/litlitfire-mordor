@@ -98,6 +98,8 @@ type BookListItem = {
   totalPrice: number;
   processingStatus: string;
   createdAt: Date;
+  packageTier: "lite" | "upgraded";
+  chapterCount: number;
   pipelinePhase: PipelinePhase;
   pipelineLabel: string;
   promptReadyCount: number;
@@ -129,6 +131,7 @@ type BookDetailsPageItem = {
   // Scene-mode rows only (dual read path below).
   sceneTitle?: string;
   sourcePage?: number;
+  promptStructured?: unknown;
 };
 type BookDetailsResult = {
   id: number;
@@ -138,6 +141,8 @@ type BookDetailsResult = {
   totalPrice: number;
   processingStatus: string;
   generationMode: string;
+  packageTier: "lite" | "upgraded";
+  chapterCount: number;
   storyBible?: unknown;
   readingProfile?: unknown;
   pipelinePhase: PipelinePhase;
@@ -186,8 +191,18 @@ export const booksRouter = router({
         const { url: pdfUrl } = await storagePut(pdfKey, pdfBuffer, "application/pdf");
 
         // Functional bar §1: upload stores PDF + extracts/OCRs page text ONLY.
-        // No prompts, no DALL·E. Transcribe + approve + render are separate steps.
-        const book = await createBook({ userId, title: input.title, description: input.description, pdfFileKey: pdfKey, pdfFileUrl: pdfUrl, pageCount: metadata.totalPages, processingStatus: "pending", totalPrice });
+        // Lite package only (chapters). Upgraded (pages) is paid framing — not selectable.
+        const book = await createBook({
+          userId,
+          title: input.title,
+          description: input.description,
+          pdfFileKey: pdfKey,
+          pdfFileUrl: pdfUrl,
+          pageCount: metadata.totalPages,
+          processingStatus: "pending",
+          packageTier: "lite",
+          totalPrice,
+        } as any);
         if (!book) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Book record could not be created" });
 
         invalidateUserCache(userId);
@@ -208,13 +223,13 @@ export const booksRouter = router({
         // client will pass imageParams to renderApprovedImages when rendering.
         void input.imageParams;
 
-        // Auto Stage 1: multi-pass reading (genre → plot → prompts). Does NOT
+        // Auto Stage 1: lite multi-pass (genre → chapters → prompts). Does NOT
         // auto-approve or auto-render — human gate stays before generate.
-        await updateBook(book.id, { processingStatus: "processing" } as any);
+        await updateBook(book.id, { processingStatus: "processing", packageTier: "lite" } as any);
         void transcribeBook(book.id)
           .then((r) => {
             console.log(
-              `[Books Router] auto multi-pass done book=${book.id} prompts=${r.transcribed} genres=${(r.genres || []).join(",")}`
+              `[Books Router] auto multi-pass done book=${book.id} chapters=${r.chapterCount ?? "?"} prompts=${r.transcribed} genres=${(r.genres || []).join(",")}`
             );
             invalidateUserCache(userId);
           })
@@ -236,10 +251,11 @@ export const booksRouter = router({
           pageCapWarning,
           totalPrice: Number(book.totalPrice),
           processingStatus: "processing" as const,
+          packageTier: "lite" as const,
           autoRenderStarted: false,
           phase: "reading" as const,
           message:
-            "PDF stored and text extracted. Multi-pass reading started — approve prompts, then generate photos.",
+            "PDF stored (Lite package). Reading chapters — approve chapter prompts, then generate photos. Upgraded (per-page) is a paid package later.",
         };
       } catch (error) {
         console.error("[Books Router] Upload error:", error);
@@ -303,6 +319,13 @@ export const booksRouter = router({
           paginatedBooks.map(async (book) => {
             const pages = (await getBookPages(book.id)) || [];
             const phase = derivePipelinePhase(book.processingStatus, pages);
+            const profile = (book as any).readingProfile as
+              | { chapters?: unknown[] }
+              | null
+              | undefined;
+            const chapterCount = Array.isArray(profile?.chapters)
+              ? profile!.chapters!.length
+              : phase.promptReadyCount || 0;
             return {
               id: book.id,
               title: book.title,
@@ -311,6 +334,10 @@ export const booksRouter = router({
               totalPrice: Number(book.totalPrice),
               processingStatus: book.processingStatus,
               createdAt: book.createdAt,
+              packageTier: ((book as any).packageTier === "upgraded" ? "upgraded" : "lite") as
+                | "lite"
+                | "upgraded",
+              chapterCount,
               pipelinePhase: phase.phase,
               pipelineLabel: phase.label,
               promptReadyCount: phase.promptReadyCount,
@@ -395,13 +422,21 @@ export const booksRouter = router({
             maxRetries: page.maxRetries,
             lastRetryAt: page.lastRetryAt,
             nextRetryAt: page.nextRetryAt,
+            promptStructured: (page as any).promptStructured ?? null,
           }));
         }
         const phase = derivePipelinePhase(book.processingStatus, pageItems);
+        const profile = (book as any).readingProfile as
+          | { chapters?: unknown[] }
+          | null
+          | undefined;
+        const chapterCount = Array.isArray(profile?.chapters) ? profile!.chapters!.length : 0;
         const result: BookDetailsResult = {
           id: book.id, title: book.title, description: book.description, pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus,
           generationMode: (book as any).generationMode ?? "page",
+          packageTier: (book as any).packageTier === "upgraded" ? "upgraded" : "lite",
+          chapterCount,
           storyBible: (book as any).storyBible ?? null,
           readingProfile: (book as any).readingProfile ?? null,
           pipelinePhase: phase.phase,
@@ -562,7 +597,10 @@ export const booksRouter = router({
 
         const result = await transcribeBook(input.bookId);
         invalidateUserCache(userId);
-        return { ...result, message: "Transcribe complete — review and approve prompts before render" };
+        return {
+          ...result,
+          message: `Lite package: ${result.chapterCount ?? result.transcribed} chapter unit(s) ready — approve, then generate. (Per-page is the paid upgraded package.)`,
+        };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({

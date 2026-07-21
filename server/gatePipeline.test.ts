@@ -172,18 +172,20 @@ describe("transcribeBook", () => {
       {
         id: 10,
         pageNumber: 1,
-        ocrText: "Once upon a time in a riverside town with plenty of words",
+        ocrText:
+          "Chapter 1\nOnce upon a time in a riverside town with plenty of words for the chapter",
         promptStatus: "pending",
       },
       {
         id: 11,
         pageNumber: 2,
-        ocrText: "Captain Ellis arrived with a weathered map of the coast",
+        ocrText:
+          "Chapter 2\nCaptain Ellis arrived with a weathered map of the coast and a plan",
         promptStatus: "pending",
       },
     ] as any);
     mBible.mockResolvedValue(bible as any);
-    mGetBook.mockResolvedValue({ id: 1, storyBible: bible } as any);
+    mGetBook.mockResolvedValue({ id: 1, storyBible: bible, packageTier: "lite" } as any);
     mPrompt.mockResolvedValue({ prompt: "LLM prompt", style: "oil", mood: "calm" });
 
     const result = await transcribeBook(1);
@@ -194,18 +196,27 @@ describe("transcribeBook", () => {
       1,
       expect.objectContaining({
         readingProfile: expect.objectContaining({
+          packageTier: "lite",
           genres: expect.arrayContaining(["narrative fiction"]),
+          chapters: expect.any(Array),
           authorIntent: expect.any(String),
         }),
       })
     );
+    // Lite: one prompt per chapter (two Chapter headings → two prompts)
     expect(mPrompt).toHaveBeenCalledTimes(2);
     expect(mUpdatePage).toHaveBeenCalledWith(
       10,
-      expect.objectContaining({ promptStatus: "prompt_ready", generatedPrompt: "LLM prompt" })
+      expect.objectContaining({
+        promptStatus: "prompt_ready",
+        generatedPrompt: "LLM prompt",
+        promptStructured: expect.objectContaining({ packageTier: "lite" }),
+      })
     );
     expect(result.biblePersisted).toBe(true);
     expect(result.genres).toEqual(["narrative fiction"]);
+    expect(result.packageTier).toBe("lite");
+    expect(result.chapterCount).toBe(2);
     expect(mGen).not.toHaveBeenCalled();
   });
 });

@@ -77,7 +77,7 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
           ? (data as { pagesExtracted: number }).pagesExtracted
           : data.pageCount;
       toast.success(
-        `Book "${data.title}" saved — extracted ${extracted} page(s). Multi-pass reading is building prompts; open the book to approve, then generate.`
+        `Book "${data.title}" saved (Lite · chapters) — extracted ${extracted} page(s). Reading chapter breaks; open to approve, then generate. Per-page is the paid upgraded package.`
       );
 
       // Invalidate list so new book shows immediately in Your Books

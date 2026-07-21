@@ -127,8 +127,17 @@ export default function Books() {
               </CardHeader>
               <CardContent className="space-y-3 pt-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Pages</p>
-                  <p className="font-medium">{(book as any).pageCount}</p>
+                  <p className="text-sm text-muted-foreground">Package</p>
+                  <p className="font-medium">
+                    Lite · chapters
+                    {(book as any).chapterCount
+                      ? ` (${(book as any).chapterCount})`
+                      : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {(book as any).pageCount} source pages · Upgraded (per page) is a
+                    paid package later
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Price</p>
@@ -252,21 +261,21 @@ export default function Books() {
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div>
-                <p className="font-medium mb-1">1. Upload PDF</p>
+                <p className="font-medium mb-1">1. Upload PDF (Lite package)</p>
                 <p className="text-muted-foreground">
-                  Text is extracted; multi-pass reading builds genre-aware prompts
+                  Text is extracted; chapters are found at page breaks and headings
                 </p>
               </div>
               <div>
-                <p className="font-medium mb-1">2. Approve prompts</p>
+                <p className="font-medium mb-1">2. Approve chapter prompts</p>
                 <p className="text-muted-foreground">
-                  Open the book, review prompts, approve (or Approve all) before photos
+                  One illustration per chapter (cheap lite package). Approve before photos.
                 </p>
               </div>
               <div>
                 <p className="font-medium mb-1">3. Generate Photos</p>
                 <p className="text-muted-foreground">
-                  Stage 2 renders approved pages by page number — not a silent queue
+                  Stage 2 renders approved chapters. Per-page images are the paid upgraded package.
                 </p>
               </div>
             </CardContent>
@@ -303,6 +312,8 @@ export default function Books() {
                     promptReadyCount={book.promptReadyCount}
                     approvedCount={book.approvedCount}
                     imageReadyCount={book.imageReadyCount}
+                    packageTier={book.packageTier}
+                    chapterCount={book.chapterCount}
                     onView={() => handleViewBook(book.id)}
                     onDelete={() => {
                       toast.success(`Book deleted`);

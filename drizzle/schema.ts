@@ -21,6 +21,8 @@ export const retryStatusEnum = pgEnum("retry_status", ["pending", "processing", 
 export const jobTypeEnum = pgEnum("job_type", ["extract_pdf", "ocr", "generate_prompt", "generate_image"]);
 export const jobStatusEnum = pgEnum("job_status", ["pending", "processing", "completed", "failed"]);
 export const generationModeEnum = pgEnum("generation_mode", ["page", "scene"]);
+/** Product package: lite = chapters (runnable); upgraded = pages (paid framing only for now). */
+export const packageTierEnum = pgEnum("package_tier", ["lite", "upgraded"]);
 // Two-phase review gate (port plan / functional bar): prompts and images split.
 // "approved" is the only status that may enter renderApprovedImages.
 export const promptStatusEnum = pgEnum("page_prompt_status", [
@@ -67,9 +69,11 @@ export const books = pgTable(
     // "scene" = multiple distinct scenes per book (scenes table). Controls
     // which table the pipeline writes to. No dual writes; no synthetic rows.
     generationMode: generationModeEnum("generationMode").default("page").notNull(),
+    // Product package. App always writes "lite" this pass; "upgraded" reserved for paid pages package.
+    packageTier: packageTierEnum("packageTier").default("lite").notNull(),
     // Persisted visual bible (StoryContext JSON). Built once in reading pass; reused on render.
     storyBible: jsonb("storyBible"),
-    // Multi-pass reading: genres, authorIntent, plotUnits (main vs skip).
+    // Multi-pass reading: genres, authorIntent, chapters, plotUnits (main vs skip).
     readingProfile: jsonb("readingProfile"),
     totalPrice: numeric("totalPrice", { precision: 10, scale: 2 }).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
