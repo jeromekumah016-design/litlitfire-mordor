@@ -20,9 +20,13 @@ vi.mock("./pdfService", () => ({
 vi.mock("./ocrService", () => ({
   extractTextFromImage: vi.fn(),
 }));
-vi.mock("./promptService", () => ({
-  generateImagePrompt: vi.fn(),
-}));
+vi.mock("./promptService", async (importOriginal) => {
+  // Keep the real EmptyPageError class (tests below construct/throw it to
+  // simulate promptService's real refuse-to-render behaviour) while stubbing
+  // out the actual LLM-calling function.
+  const actual = await importOriginal<typeof import("./promptService")>();
+  return { ...actual, generateImagePrompt: vi.fn() };
+});
 vi.mock("./_core/imageGeneration", () => ({
   generateImage: vi.fn(),
 }));
@@ -41,7 +45,7 @@ vi.mock("./db", () => ({
 
 import { generatePageThumbnail, extractSinglePageText } from "./pdfService";
 import { extractTextFromImage } from "./ocrService";
-import { generateImagePrompt } from "./promptService";
+import { generateImagePrompt, EmptyPageError } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
 import { storagePut } from "./storage";
 import { markPageForRetry } from "./retryService";
@@ -126,6 +130,22 @@ describe("processPagePipeline (single-page retry path)", () => {
       expect.stringContaining("image API down"),
       expect.any(String)
     );
+  });
+
+  it("marks the page as permanently failed (no auto-retry) when the page has no extractable text", async () => {
+    mSinglePageText.mockResolvedValue("");
+    mPrompt.mockRejectedValueOnce(new EmptyPageError(3));
+    mCreatePage.mockResolvedValueOnce({ id: 9 } as never);
+
+    await expect(processPagePipeline(1, 3, Buffer.from("pdf"))).rejects.toThrow(EmptyPageError);
+
+    expect(mCreatePage).toHaveBeenCalledWith(
+      expect.objectContaining({ bookId: 1, pageNumber: 3, processingStatus: "error" })
+    );
+    // Unlike an image-generation failure, this is not retryable -- the text
+    // will still be absent next time -- so no retry should be scheduled.
+    expect(mRetryPage).not.toHaveBeenCalled();
+    expect(mGenImage).not.toHaveBeenCalled();
   });
 
   it("render boundary: the image generator receives prompt + keyPrefix + params only, never raw page text", async () => {
