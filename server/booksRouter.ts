@@ -5,6 +5,12 @@ import { createBook, getUserBooks, getBook, getBookPages, getBookScenes, updateB
 import { getPDFMetadata } from "./pdfService";
 import { processBookPipeline } from "./pipelineService";
 import { calculatePrice } from "./pricingService";
+import {
+  PIPELINE_MAX_PAGES,
+  decideAutoStartRender,
+  getDailyRenderPageCap,
+  sumStartedRenderUnitsToday,
+} from "./renderCap";
 import { TRPCError } from "@trpc/server";
 
 // ------------------------------------------------------------------
@@ -101,8 +107,6 @@ type BookDetailsResult = {
   createdAt: Date;
 };
 
-const PIPELINE_MAX_PAGES = 20;
-
 // Render-side image-generation controls (aspect ratio / quality / style).
 // Optional: anything omitted is defaulted downstream by normalizeImageParams.
 // Validated here with strict enums so the API rejects unknown values at the
@@ -139,16 +143,48 @@ export const booksRouter = router({
         const pdfKey = `books/${userId}/${Date.now()}-${input.title.replace(/\s+/g, "-")}.pdf`;
         const { url: pdfUrl } = await storagePut(pdfKey, pdfBuffer, "application/pdf");
 
+        // Always create as pending. Auto-start of the full render pipeline is
+        // gated by the per-user daily render page-unit cap (audit P0 C1).
         const book = await createBook({ userId, title: input.title, description: input.description, pdfFileKey: pdfKey, pdfFileUrl: pdfUrl, pageCount: metadata.totalPages, processingStatus: "pending", totalPrice });
         if (!book) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Book record could not be created" });
 
         invalidateUserCache(userId);
-        processBookPipeline(book.id, pdfBuffer, undefined, input.imageParams).catch((error) => { console.error("[Books Router] Background processing error:", error); });
+
+        const userBooks = await getUserBooks(userId);
+        const usedToday = sumStartedRenderUnitsToday(userBooks);
+        const autoStart = decideAutoStartRender(usedToday, metadata.totalPages, getDailyRenderPageCap());
+
+        let processingStatus: "pending" | "processing" = "pending";
+        if (autoStart.allowed) {
+          processBookPipeline(book.id, pdfBuffer, undefined, input.imageParams).catch((error) => {
+            console.error("[Books Router] Background processing error:", error);
+          });
+          processingStatus = "processing";
+        } else {
+          console.warn(
+            `[Books Router] Upload auto-render blocked for user ${userId}: used=${autoStart.used} + book=${autoStart.bookUnits} > cap=${autoStart.cap}. Book ${book.id} left pending; call processPdf explicitly when ready.`
+          );
+        }
 
         const pagesWillProcess = Math.min(metadata.totalPages, PIPELINE_MAX_PAGES);
         const pageCapWarning = metadata.totalPages > PIPELINE_MAX_PAGES ? `Only the first ${PIPELINE_MAX_PAGES} of ${metadata.totalPages} pages will be processed.` : undefined;
 
-        return { bookId: book.id, title: book.title, pageCount: book.pageCount, pagesWillProcess, pageCapWarning, totalPrice: Number(book.totalPrice), processingStatus: "processing" };
+        return {
+          bookId: book.id,
+          title: book.title,
+          pageCount: book.pageCount,
+          pagesWillProcess,
+          pageCapWarning,
+          totalPrice: Number(book.totalPrice),
+          processingStatus,
+          autoRenderStarted: autoStart.allowed,
+          dailyRender: {
+            used: autoStart.used,
+            cap: autoStart.cap,
+            bookUnits: autoStart.bookUnits,
+            remaining: autoStart.remaining,
+          },
+        };
       } catch (error) {
         console.error("[Books Router] Upload error:", error);
         if (error instanceof TRPCError) throw error;
@@ -167,15 +203,28 @@ export const booksRouter = router({
         if (book.processingStatus === "processing" || book.processingStatus === "completed") {
           return { bookId: input.bookId, status: book.processingStatus, message: `PDF is ${book.processingStatus}` };
         }
+        // H5: never mark "processing" until the PDF bytes are in hand. A prior
+        // bug set processing first, then logged fetch failures and left the
+        // book permanently stuck (re-trigger refused while status=processing).
+        if (!book.pdfFileUrl) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Book has no pdfFileUrl; cannot start processing" });
+        }
+        let pdfBuffer: Buffer;
+        try {
+          const pdfResp = await fetch(book.pdfFileUrl);
+          if (!pdfResp.ok) throw new Error(`Failed to fetch PDF (status ${pdfResp.status})`);
+          pdfBuffer = Buffer.from(await pdfResp.arrayBuffer());
+        } catch (fetchErr) {
+          console.error("[Books Router] Could not re-fetch PDF:", fetchErr);
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: fetchErr instanceof Error ? `Could not fetch PDF: ${fetchErr.message}` : "Could not fetch PDF",
+          });
+        }
         await updateBook(input.bookId, { processingStatus: "processing" });
-        if (book.pdfFileUrl) {
-          try {
-            const pdfResp = await fetch(book.pdfFileUrl);
-            if (!pdfResp.ok) throw new Error(`Failed to fetch PDF (status ${pdfResp.status})`);
-            const pdfBuffer = Buffer.from(await pdfResp.arrayBuffer());
-            processBookPipeline(book.id, pdfBuffer).catch((error) => { console.error("[Books Router] processPdf pipeline error:", error); });
-          } catch (fetchErr) { console.error("[Books Router] Could not re-fetch PDF:", fetchErr); }
-        } else { console.warn("[Books Router] Book has no pdfFileUrl, cannot re-trigger pipeline"); }
+        processBookPipeline(book.id, pdfBuffer).catch((error) => {
+          console.error("[Books Router] processPdf pipeline error:", error);
+        });
         return { bookId: input.bookId, status: "processing", message: "PDF processing started" };
       } catch (error) {
         console.error("[Books Router] Process PDF error:", error);
@@ -325,6 +374,28 @@ export const booksRouter = router({
         const failedPages = pages.filter((p) => p.processingStatus === "error");
         if (failedPages.length === 0) return { success: true, message: "No failed pages to retry", retriedCount: 0 };
 
+        // H5: fetch PDF first. Do not reset pages or mark book "processing"
+        // until bytes are in hand — otherwise a fetch failure leaves pages
+        // pending / book processing with no pipeline running.
+        if (!book.pdfFileUrl) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Book has no pdfFileUrl; cannot retry pipeline",
+          });
+        }
+        let pdfBuffer: Buffer;
+        try {
+          const res = await fetch(book.pdfFileUrl);
+          if (!res.ok) throw new Error(`Failed to fetch PDF (status ${res.status})`);
+          pdfBuffer = Buffer.from(await res.arrayBuffer());
+        } catch (fetchErr) {
+          console.error("[Books Router] retryFailedPages fetch error:", fetchErr);
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: fetchErr instanceof Error ? `Could not fetch PDF: ${fetchErr.message}` : "Could not fetch PDF",
+          });
+        }
+
         for (const page of failedPages) {
           // Reset retryCount to 0 so each page gets a fresh retry budget.
           // Incrementing it here would permanently exhaust auto-retry on pages
@@ -334,12 +405,9 @@ export const booksRouter = router({
         await updateBook(input.bookId, { processingStatus: "processing" });
         invalidateUserCache(userId);
 
-        if (book.pdfFileUrl) {
-          fetch(book.pdfFileUrl)
-            .then((res) => { if (!res.ok) throw new Error(`Failed to fetch PDF (status ${res.status})`); return res.arrayBuffer(); })
-            .then((buf) => processBookPipeline(book.id, Buffer.from(buf)))
-            .catch((err) => console.error("[Books Router] retryFailedPages pipeline error:", err));
-        } else { console.warn("[Books Router] retryFailedPages: book has no pdfFileUrl, pipeline not re-triggered"); }
+        processBookPipeline(book.id, pdfBuffer).catch((err) => {
+          console.error("[Books Router] retryFailedPages pipeline error:", err);
+        });
 
         return { success: true, message: `Retrying ${failedPages.length} failed page(s)`, retriedCount: failedPages.length };
       } catch (error) {

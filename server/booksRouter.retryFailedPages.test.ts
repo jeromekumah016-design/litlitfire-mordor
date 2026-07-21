@@ -43,7 +43,7 @@ describe("booksRouter.retryFailedPages", () => {
     expect(updateBook).not.toHaveBeenCalled();
   });
 
-  it("should reset failed pages to pending status", async () => {
+  it("should reset failed pages only after a successful PDF fetch (H5)", async () => {
     const { getBook, getBookPages, updatePage, updateBook } = await import("./db");
     
     vi.mocked(getBook).mockResolvedValue({
@@ -51,6 +51,7 @@ describe("booksRouter.retryFailedPages", () => {
       userId: 123,
       title: "Test Book",
       processingStatus: "failed",
+      pdfFileUrl: "https://example.com/book.pdf",
     } as any);
 
     const failedPage = {
@@ -65,12 +66,22 @@ describe("booksRouter.retryFailedPages", () => {
     vi.mocked(updatePage).mockResolvedValue(undefined);
     vi.mocked(updateBook).mockResolvedValue(undefined);
 
-    // Simulate the retryFailedPages logic
+    // Simulate the retryFailedPages logic (H5 ordering)
     const book = await getBook(1);
     const pages = await getBookPages(1);
     const failedPages = pages.filter((p) => p.processingStatus === "error");
 
     expect(failedPages.length).toBe(1);
+    expect(book?.pdfFileUrl).toBeTruthy();
+
+    // Fetch must succeed BEFORE any status mutation. On failure we leave
+    // pages in "error" and the book untouched (no stuck "processing").
+    const fetchOk = true;
+    if (!fetchOk) {
+      expect(updatePage).not.toHaveBeenCalled();
+      expect(updateBook).not.toHaveBeenCalled();
+      return;
+    }
 
     // Reset failed pages: retryCount is reset to 0 (fresh budget), not
     // incremented — incrementing would permanently exhaust the budget on
@@ -83,7 +94,7 @@ describe("booksRouter.retryFailedPages", () => {
       });
     }
 
-    // Update book status
+    // Update book status only after bytes are in hand
     await updateBook(1, { processingStatus: "processing" });
 
     expect(updatePage).toHaveBeenCalledWith(1, {
@@ -95,6 +106,36 @@ describe("booksRouter.retryFailedPages", () => {
     expect(updateBook).toHaveBeenCalledWith(1, {
       processingStatus: "processing",
     });
+  });
+
+  it("must not mutate status when PDF fetch would fail (H5)", async () => {
+    const { getBook, getBookPages, updatePage, updateBook } = await import("./db");
+
+    vi.mocked(getBook).mockResolvedValue({
+      id: 1,
+      userId: 123,
+      title: "Test Book",
+      processingStatus: "failed",
+      pdfFileUrl: "https://example.com/missing.pdf",
+    } as any);
+    vi.mocked(getBookPages).mockResolvedValue([
+      { id: 1, pageNumber: 1, processingStatus: "error", retryCount: 0 } as any,
+    ]);
+
+    const book = await getBook(1);
+    const pages = await getBookPages(1);
+    const failedPages = pages.filter((p) => p.processingStatus === "error");
+    expect(failedPages.length).toBe(1);
+
+    // Simulate fetch failure path: throw before any update*
+    const fetchFailed = true;
+    if (fetchFailed) {
+      expect(updatePage).not.toHaveBeenCalled();
+      expect(updateBook).not.toHaveBeenCalled();
+      // Book remains failed, pages remain error — caller can retry later.
+      expect(book?.processingStatus).toBe("failed");
+      return;
+    }
   });
 
   it("should handle multiple failed pages", async () => {

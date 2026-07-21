@@ -1058,6 +1058,8 @@ describe("booksRouter.getProgress — progress-calculation variants", () => {
 describe("booksRouter.upload — validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Cap check iterates user books; default to empty history so auto-render is allowed.
+    vi.mocked(getUserBooks as any).mockResolvedValue([]);
   });
 
   it("throws BAD_REQUEST when PDF has more than 500 pages", async () => {
@@ -1087,6 +1089,7 @@ describe("booksRouter.upload — validation", () => {
 
     expect(result.pagesWillProcess).toBe(20);
     expect(result.pageCapWarning).toMatch(/Only the first 20 of 21/);
+    expect(result.autoRenderStarted).toBe(true);
   });
 
   it("returns pagesWillProcess=10 with NO warning for a 10-page PDF", async () => {
@@ -1105,7 +1108,7 @@ describe("booksRouter.upload — validation", () => {
     expect(result.pageCapWarning).toBeUndefined();
   });
 
-  it("returns processingStatus='processing' in the upload response", async () => {
+  it("returns processingStatus='processing' in the upload response when under daily cap", async () => {
     vi.mocked(getPDFMetadata).mockResolvedValue({ totalPages: 5 });
     vi.mocked(createBook as any).mockResolvedValue(
       makeBook({ id: 4, pageCount: 5, processingStatus: "pending" })
@@ -1118,6 +1121,33 @@ describe("booksRouter.upload — validation", () => {
     });
 
     expect(result.processingStatus).toBe("processing");
+    expect(result.autoRenderStarted).toBe(true);
+  });
+
+  it("leaves book pending and skips auto-render when daily page-unit cap would be exceeded", async () => {
+    // Two full 20-unit books already started today → used=40, default cap=40.
+    const today = new Date();
+    vi.mocked(getUserBooks as any).mockResolvedValue([
+      makeBook({ id: 10, pageCount: 20, processingStatus: "processing", createdAt: today }),
+      makeBook({ id: 11, pageCount: 20, processingStatus: "completed", createdAt: today }),
+    ]);
+    vi.mocked(getPDFMetadata).mockResolvedValue({ totalPages: 5 });
+    vi.mocked(createBook as any).mockResolvedValue(
+      makeBook({ id: 12, pageCount: 5, processingStatus: "pending" })
+    );
+
+    const { processBookPipeline } = await import("./pipelineService");
+    const caller = appRouter.createCaller(makeCtx(104));
+    const result = await caller.books.upload({
+      title: "Over Cap Book",
+      pdfData: Buffer.alloc(10).toString("base64"),
+    });
+
+    expect(result.processingStatus).toBe("pending");
+    expect(result.autoRenderStarted).toBe(false);
+    expect(result.dailyRender.used).toBe(40);
+    expect(result.dailyRender.cap).toBe(40);
+    expect(processBookPipeline).not.toHaveBeenCalled();
   });
 });
 
@@ -1264,9 +1294,36 @@ describe("booksRouter.getProgress — integration", () => {
   });
 });
 
+function mockPdfFetchOk(body: ArrayBuffer = new ArrayBuffer(8)) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => body,
+    })
+  );
+}
+
+function mockPdfFetchFail(status = 404) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    })
+  );
+}
+
 describe("booksRouter.retryFailedPages — integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPdfFetchOk();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("throws NOT_FOUND when book does not exist", async () => {
@@ -1337,7 +1394,7 @@ describe("booksRouter.retryFailedPages — integration", () => {
     );
   });
 
-  it("sets book status back to 'processing' after resetting failed pages", async () => {
+  it("sets book status back to 'processing' only after successful PDF fetch (H5)", async () => {
     vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "failed" }));
     vi.mocked(getBookPages as any).mockResolvedValue([
       makePage({ id: 1, processingStatus: "error", retryCount: 0 }),
@@ -1349,6 +1406,21 @@ describe("booksRouter.retryFailedPages — integration", () => {
     await caller.books.retryFailedPages({ bookId: 1 });
 
     expect(updateBook).toHaveBeenCalledWith(1, { processingStatus: "processing" });
+  });
+
+  it("does not mutate page/book status when PDF fetch fails (H5)", async () => {
+    mockPdfFetchFail(503);
+    vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "failed" }));
+    vi.mocked(getBookPages as any).mockResolvedValue([
+      makePage({ id: 1, processingStatus: "error", retryCount: 0 }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx(1));
+    await expect(caller.books.retryFailedPages({ bookId: 1 })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+    expect(updatePage).not.toHaveBeenCalled();
+    expect(updateBook).not.toHaveBeenCalled();
   });
 });
 
@@ -1781,12 +1853,19 @@ describe("ResumableUpload.getProgress() — divide-by-zero fix", () => {
 // ===========================================================================
 
 describe("booksRouter.retryFailedPages — resets retryCount to 0", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPdfFetchOk();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it("calls updatePage with retryCount: 0 (not incremented) for an exhausted page", async () => {
     vi.mocked(getBook as any).mockResolvedValue(makeBook());
     vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ processingStatus: "error", retryCount: 3, maxRetries: 3, pdfFileUrl: null }),
+      makePage({ processingStatus: "error", retryCount: 3, maxRetries: 3 }),
     ]);
     vi.mocked(updatePage as any).mockResolvedValue(undefined);
     vi.mocked(updateBook as any).mockResolvedValue(undefined);
