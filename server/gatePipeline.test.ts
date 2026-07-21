@@ -228,4 +228,60 @@ describe("renderApprovedImages", () => {
       expect.objectContaining({ imageStatus: "image_error" })
     );
   });
+
+  it("bar §4: render never calls generateImagePrompt (uses persisted prompt only)", async () => {
+    mGetPages.mockResolvedValue([
+      {
+        id: 10,
+        pageNumber: 1,
+        promptStatus: "approved",
+        generatedPrompt: "PERSISTED_PROMPT_BYTE_IDENTITY",
+        imageStatus: "pending",
+        skipSuggested: false,
+      },
+    ] as any);
+    mGen.mockResolvedValue({
+      url: "https://cdn/g.png",
+      key: "books/1/pages/1/generated.png",
+    });
+
+    await renderApprovedImages(1);
+
+    expect(mPrompt).not.toHaveBeenCalled();
+    expect(mBible).not.toHaveBeenCalled();
+    expect(mGen).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "PERSISTED_PROMPT_BYTE_IDENTITY" })
+    );
+  });
+});
+
+describe("reRenderApprovedPage (retry path, bar §5)", () => {
+  it("re-renders from persisted prompt and refuses non-approved", async () => {
+    const { reRenderApprovedPage } = await import("./gatePipeline");
+
+    mGetPage.mockResolvedValue({
+      id: 10,
+      bookId: 1,
+      pageNumber: 1,
+      promptStatus: "prompt_ready",
+      generatedPrompt: "should not render",
+    } as any);
+    await expect(reRenderApprovedPage(10)).rejects.toThrow(/refusing to regenerate/);
+
+    mGetPage.mockResolvedValue({
+      id: 10,
+      bookId: 1,
+      pageNumber: 1,
+      promptStatus: "approved",
+      generatedPrompt: "LOCKED_PROMPT",
+    } as any);
+    mGen.mockResolvedValue({ url: "https://cdn/r.png", key: "books/1/pages/1/generated.png" });
+
+    const r = await reRenderApprovedPage(10);
+    expect(r.key).toBe("books/1/pages/1/generated.png");
+    expect(mPrompt).not.toHaveBeenCalled();
+    expect(mGen).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "LOCKED_PROMPT" })
+    );
+  });
 });

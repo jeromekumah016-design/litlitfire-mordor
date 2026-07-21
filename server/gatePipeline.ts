@@ -228,7 +228,61 @@ export type RenderResult = {
 };
 
 /**
+ * Re-render a single approved page from its persisted generatedPrompt.
+ * Used by retryWorker / retryFailedPages. NEVER calls the LLM or rebuilds the bible.
+ * Returns the storage key on success.
+ */
+export async function reRenderApprovedPage(
+  pageId: number,
+  imageParams?: Partial<ImageGenParams>
+): Promise<{ url: string; key: string }> {
+  const page = await getPage(pageId);
+  if (!page) throw new Error(`Page ${pageId} not found`);
+  if (page.promptStatus !== "approved") {
+    throw new Error(
+      `reRenderApprovedPage: page ${pageId} promptStatus="${page.promptStatus}" (need approved) — refusing to regenerate prompts`
+    );
+  }
+  const prompt = page.generatedPrompt?.trim();
+  if (!prompt) {
+    throw new Error(`reRenderApprovedPage: page ${pageId} has no persisted generatedPrompt`);
+  }
+
+  const params = normalizeImageParams(imageParams);
+  await updatePage(pageId, {
+    imageStatus: "generating",
+    processingStatus: "processing",
+    errorMessage: null,
+  });
+
+  try {
+    const keyPrefix = `books/${page.bookId}/pages/${page.pageNumber}/generated`;
+    const imageResult = await generateImage({ prompt, keyPrefix, params });
+    if (!imageResult.url || !imageResult.key) {
+      throw new Error("generateImage returned no url/key");
+    }
+    await updatePage(pageId, {
+      generatedImageUrl: imageResult.url,
+      generatedImageFileKey: imageResult.key,
+      imageStatus: "image_ready",
+      processingStatus: "done",
+      errorMessage: null,
+    });
+    return { url: imageResult.url, key: imageResult.key };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await updatePage(pageId, {
+      imageStatus: "image_error",
+      processingStatus: "error",
+      errorMessage: msg,
+    });
+    throw e;
+  }
+}
+
+/**
  * Render phase (functional bar §0 + §3): ONLY promptStatus === "approved".
+ * Uses persisted page.generatedPrompt only — never calls generateImagePrompt.
  * Always records the real storage key returned by generateImage.
  */
 export async function renderApprovedImages(
