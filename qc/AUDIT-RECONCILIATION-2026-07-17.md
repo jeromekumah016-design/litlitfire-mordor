@@ -43,7 +43,7 @@
 1. ~~upload/list → protected~~ done. Add a per-user daily render cap + remove or gate the upload auto-trigger.
 2. **Disable the retry worker until rebuilt** (`RETRY_WORKER_ENABLED=false` default, or drop the boot call) — on this branch it is live and harmful, not dead.
 3. H5 fix: set "processing" only after successful fetch; revert on failure (both endpoints).
-4. Refuse to render empty/fallback prompts — fail the page.
+4. ~~Refuse to render empty/fallback prompts — fail the page.~~ **DONE (2026-07-20)**: `generateImagePrompt` throws `EmptyPageError` instead of returning `"An empty page, {style}"`; both page-mode paths already fail+record that page without scheduling a retry (retrying can't produce text that was never there). See `sprint-log.md` 2026-07-20 and commit `60cb24a`.
 
 **P1 (as audited, scoped wider):** persist the bible (`books.storyBible` jsonb), status split, code-assembled final prompts with verbatim bible segments + checksum — designed across BOTH write paths (pages + scenes). Bible failure blocks phase 2.
 
