@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { derivePipelinePhase } from "./readingPipeline";
+import { derivePipelinePhase, normalizeUnitsByPageNumber } from "./readingPipeline";
 
 describe("derivePipelinePhase", () => {
   it("extracted when pages have OCR but no prompts", () => {
@@ -46,5 +46,54 @@ describe("derivePipelinePhase", () => {
   it("failed when book status is failed", () => {
     const r = derivePipelinePhase("failed", []);
     expect(r.phase).toBe("failed");
+  });
+});
+
+describe("normalizeUnitsByPageNumber", () => {
+  it("expands multi-page spans into one unit per page number", () => {
+    const units = normalizeUnitsByPageNumber(3, [
+      {
+        unitIndex: 0,
+        sourcePageFrom: 1,
+        sourcePageTo: 2,
+        role: "main",
+        title: "Journey",
+        rationale: "spans",
+      },
+      {
+        unitIndex: 1,
+        sourcePageFrom: 3,
+        sourcePageTo: 3,
+        role: "skip",
+        title: "Index",
+        rationale: "end",
+      },
+    ]);
+    expect(units).toHaveLength(3);
+    expect(units.every((u) => u.sourcePageFrom === u.sourcePageTo)).toBe(true);
+    expect(units.map((u) => u.sourcePageFrom)).toEqual([1, 2, 3]);
+    expect(units[0].role).toBe("main");
+    expect(units[1].role).toBe("main");
+    expect(units[2].role).toBe("skip");
+  });
+
+  it("fills missing page numbers with heuristic roles", () => {
+    const units = normalizeUnitsByPageNumber(
+      2,
+      [
+        {
+          unitIndex: 0,
+          sourcePageFrom: 1,
+          sourcePageTo: 1,
+          role: "main",
+          title: "Only one",
+          rationale: "partial",
+        },
+      ],
+      ["long enough narrative text for page one here", ""]
+    );
+    expect(units).toHaveLength(2);
+    expect(units[1].sourcePageFrom).toBe(2);
+    expect(units[1].role).toBe("skip");
   });
 });

@@ -186,6 +186,7 @@ export default function BookPageReadingDashboard({
             <p className="text-sm text-muted-foreground">
               {book.pipelineLabel ||
                 "Stage 1: multi-pass reading → approve → Stage 2: generate photos"}
+              {" · one image per page number"}
               {book.storyBible ? " · story bible saved" : ""}
             </p>
           </div>

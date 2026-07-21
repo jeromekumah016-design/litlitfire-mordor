@@ -1,8 +1,8 @@
 /**
  * Multi-pass book reading (genre → intent/plot → prompts)
  * Pass 1: discover genres the book conveys (open-ended).
- * Pass 2: author intent + plot units (main vs skip); visual bible.
- * Pass 3: one prompt per MAIN unit (may span multiple pages) on start page.
+ * Pass 2: author intent + main vs skip roles; visual bible.
+ * Pass 3: ONE prompt per page number for MAIN pages (no multi-page collapse).
  */
 
 import { invokeLLM } from "./_core/llm";
@@ -103,6 +103,63 @@ function fallbackUnits(pageTexts: string[]): PlotUnit[] {
   });
 }
 
+/**
+ * Product rule: one illustration decision per page number.
+ * Expands any multi-page LLM ranges into per-page units, sorted by pageNumber.
+ */
+export function normalizeUnitsByPageNumber(
+  pageCount: number,
+  raw: PlotUnit[],
+  pageTexts?: string[]
+): PlotUnit[] {
+  const roleByPage = new Map<number, { role: PlotUnit["role"]; title: string; rationale: string }>();
+  for (const u of raw) {
+    const from = Math.max(1, Math.floor(Number(u.sourcePageFrom) || 1));
+    const to = Math.max(from, Math.floor(Number(u.sourcePageTo) || from));
+    const role = (u.role === "main" || u.role === "side" ? u.role : "skip") as PlotUnit["role"];
+    for (let p = from; p <= to && p <= pageCount; p++) {
+      // Prefer main if any covering unit marks main; otherwise keep first label.
+      const prev = roleByPage.get(p);
+      if (!prev || (role === "main" && prev.role !== "main")) {
+        roleByPage.set(p, {
+          role,
+          title: from === to ? String(u.title || `Page ${p}`) : `Page ${p}`,
+          rationale: String(u.rationale || ""),
+        });
+      }
+    }
+  }
+
+  const units: PlotUnit[] = [];
+  for (let p = 1; p <= pageCount; p++) {
+    const hit = roleByPage.get(p);
+    if (hit) {
+      units.push({
+        unitIndex: p - 1,
+        sourcePageFrom: p,
+        sourcePageTo: p,
+        role: hit.role,
+        title: hit.title || `Page ${p}`,
+        rationale: hit.rationale,
+      });
+      continue;
+    }
+    const text = pageTexts?.[p - 1] || "";
+    const main = text.trim().length > 40;
+    units.push({
+      unitIndex: p - 1,
+      sourcePageFrom: p,
+      sourcePageTo: p,
+      role: main ? "main" : "skip",
+      title: main ? `Page ${p}` : `Skip ${p}`,
+      rationale: main
+        ? "Default: enough text for page-number illustration"
+        : "Default: sparse/non-plot page",
+    });
+  }
+  return units;
+}
+
 export async function mapPlotAndIntent(
   pageTexts: string[],
   genres: string[]
@@ -115,11 +172,16 @@ export async function mapPlotAndIntent(
           role: "system",
           content: `You are a story editor preparing an illustrated edition.
 Genres: ${genres.join(", ")}.
-Separate MAIN plot beats from non-plot material (front matter, index, digression, blank).
-A plot unit may span MULTIPLE consecutive pages so the illustrated story is not longer than needed.
-role must be "main" (illustrate) or "skip" (do not illustrate).`,
+Decide MAIN vs SKIP for EACH page number (one decision per page).
+- role "main" = illustrate this page (one image for that page number)
+- role "skip" = do not illustrate (front matter, blank, index, non-plot)
+sourcePageFrom and sourcePageTo MUST be the same page number (no multi-page units).
+Cover every page that appears in the scan.`,
         },
-        { role: "user", content: `Map plot units for illustration:\n\n${scan}` },
+        {
+          role: "user",
+          content: `Map one illustration decision per page number:\n\n${scan}`,
+        },
       ],
       response_format: {
         type: "json_schema",
@@ -174,18 +236,26 @@ role must be "main" (illustrate) or "skip" (do not illustrate).`,
         Math.floor(Number(u.sourcePageTo) || Number(u.sourcePageFrom) || 1)
       ),
       role: (u.role === "main" || u.role === "side" ? u.role : "skip") as PlotUnit["role"],
-      title: String(u.title || `Unit ${i}`),
+      title: String(u.title || `Page ${u.sourcePageFrom || i + 1}`),
       rationale: String(u.rationale || ""),
     }));
     return {
       authorIntent: parsed.authorIntent || "Illustrate the core narrative.",
-      plotUnits: units.length > 0 ? units : fallbackUnits(pageTexts),
+      plotUnits: normalizeUnitsByPageNumber(
+        pageTexts.length,
+        units.length > 0 ? units : fallbackUnits(pageTexts),
+        pageTexts
+      ),
     };
   } catch (e) {
     console.warn("[Reading] plot map failed, using heuristic:", e);
     return {
       authorIntent: "Illustrate the core narrative moments.",
-      plotUnits: fallbackUnits(pageTexts),
+      plotUnits: normalizeUnitsByPageNumber(
+        pageTexts.length,
+        fallbackUnits(pageTexts),
+        pageTexts
+      ),
     };
   }
 }
@@ -200,12 +270,28 @@ export async function runMultiPassReading(bookId: number): Promise<MultiPassResu
 
   await updateBook(bookId, { processingStatus: "processing" } as any);
 
-  const pageTexts = pages.map((p) => p.ocrText || "");
-  const byNumber = new Map(pages.map((p) => [p.pageNumber, p]));
+  // Always process in ascending page number order (DB already orders; re-sort for safety).
+  const pagesByNumber = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
+  const pageTextsOrdered = pagesByNumber.map((p) => p.ocrText || "");
+  const byNumber = new Map(pagesByNumber.map((p) => [p.pageNumber, p]));
 
-  const genres = await discoverGenres(pageTexts);
-  const { authorIntent, plotUnits } = await mapPlotAndIntent(pageTexts, genres);
-  const bible: StoryContext | null = await buildStoryContext(pageTexts);
+  const genres = await discoverGenres(pageTextsOrdered);
+  const { authorIntent, plotUnits: rawUnits } = await mapPlotAndIntent(
+    pageTextsOrdered,
+    genres
+  );
+  const plotUnits = normalizeUnitsByPageNumber(
+    pagesByNumber.length > 0
+      ? Math.max(...pagesByNumber.map((p) => p.pageNumber))
+      : pageTextsOrdered.length,
+    rawUnits,
+    // Align heuristic fallbacks to absolute page numbers when sparse.
+    pagesByNumber.reduce<string[]>((acc, p) => {
+      acc[p.pageNumber - 1] = p.ocrText || "";
+      return acc;
+    }, [])
+  );
+  const bible: StoryContext | null = await buildStoryContext(pageTextsOrdered);
   if (bible) {
     await updateBook(bookId, { storyBible: bible as any });
   }
@@ -221,20 +307,20 @@ export async function runMultiPassReading(bookId: number): Promise<MultiPassResu
   let promptsReady = 0;
   let errors = 0;
   let skippedPages = 0;
-  const mainUnits = plotUnits.filter((u) => u.role === "main");
+  // Strict page-number order for prompt generation
+  const mainUnits = plotUnits
+    .filter((u) => u.role === "main")
+    .sort((a, b) => a.sourcePageFrom - b.sourcePageFrom);
 
-  const mainCovered = new Set<number>();
-  for (const u of mainUnits) {
-    for (let p = u.sourcePageFrom; p <= u.sourcePageTo; p++) mainCovered.add(p);
-  }
+  const mainPageNumbers = new Set(mainUnits.map((u) => u.sourcePageFrom));
 
-  for (const page of pages) {
-    if (mainCovered.has(page.pageNumber)) continue;
+  for (const page of pagesByNumber) {
+    if (mainPageNumbers.has(page.pageNumber)) continue;
     if (page.promptStatus === "approved" || page.imageStatus === "image_ready") continue;
     await updatePage(page.id, {
       skipSuggested: true,
       promptStatus: "prompt_error",
-      errorMessage: "Skipped: non-plot / non-canon / front matter (multi-pass reading)",
+      errorMessage: "Skipped: non-plot / non-canon / front matter (page-number pass)",
     });
     skippedPages++;
   }
@@ -243,48 +329,45 @@ export async function runMultiPassReading(bookId: number): Promise<MultiPassResu
     [];
 
   for (const unit of mainUnits) {
-    const startPage = byNumber.get(unit.sourcePageFrom);
-    if (!startPage) continue;
-    if (startPage.promptStatus === "approved" || startPage.promptStatus === "prompt_ready") {
-      if (startPage.generatedPrompt) {
+    const pageNum = unit.sourcePageFrom; // === sourcePageTo after normalize
+    const pageRow = byNumber.get(pageNum);
+    if (!pageRow) continue;
+    if (pageRow.promptStatus === "approved" || pageRow.promptStatus === "prompt_ready") {
+      if (pageRow.generatedPrompt) {
         pageContexts.push({
-          pageNumber: startPage.pageNumber,
-          text: startPage.ocrText || "",
-          prompt: startPage.generatedPrompt,
+          pageNumber: pageRow.pageNumber,
+          text: pageRow.ocrText || "",
+          prompt: pageRow.generatedPrompt,
         });
       }
       promptsReady++;
       continue;
     }
 
-    const combined: string[] = [];
-    for (let p = unit.sourcePageFrom; p <= unit.sourcePageTo; p++) {
-      const row = byNumber.get(p);
-      if (row?.ocrText) combined.push(row.ocrText);
-    }
-    const unitText = combined.join("\n\n") || startPage.ocrText || "";
+    const unitText = pageRow.ocrText || "";
 
-    await updatePage(startPage.id, { promptStatus: "transcribing", skipSuggested: false });
+    await updatePage(pageRow.id, { promptStatus: "transcribing", skipSuggested: false });
     try {
       const genreNote = genres.length ? ` Genre context: ${genres.join(", ")}.` : "";
       const intentNote = authorIntent ? ` Authorial intent: ${authorIntent}` : "";
-      const enrichedText = `${unitText}\n\n[Illustration unit: ${unit.title}. Pages ${unit.sourcePageFrom}–${unit.sourcePageTo}.${genreNote}${intentNote}]`;
+      const enrichedText = `${unitText}\n\n[Illustration for page ${pageNum}: ${unit.title}.${genreNote}${intentNote}]`;
 
       const result = await generateImagePrompt(
         enrichedText,
-        unit.sourcePageFrom,
+        pageNum,
         pageContexts.length ? pageContexts : undefined,
         bible
       );
 
-      await updatePage(startPage.id, {
+      await updatePage(pageRow.id, {
         promptStatus: "prompt_ready",
         generatedPrompt: result.prompt,
         promptStructured: {
           style: result.style ?? null,
           mood: result.mood ?? null,
           unitIndex: unit.unitIndex,
-          sourcePages: [unit.sourcePageFrom, unit.sourcePageTo],
+          pageNumber: pageNum,
+          sourcePages: [pageNum, pageNum],
           unitTitle: unit.title,
           unitRationale: unit.rationale,
           genres,
@@ -293,20 +376,8 @@ export async function runMultiPassReading(bookId: number): Promise<MultiPassResu
         skipSuggested: false,
       });
 
-      for (let p = unit.sourcePageFrom + 1; p <= unit.sourcePageTo; p++) {
-        const mid = byNumber.get(p);
-        if (!mid) continue;
-        if (mid.promptStatus === "approved" || mid.imageStatus === "image_ready") continue;
-        await updatePage(mid.id, {
-          skipSuggested: true,
-          promptStatus: "prompt_error",
-          errorMessage: `Covered by plot unit starting at page ${unit.sourcePageFrom} ("${unit.title}")`,
-        });
-        skippedPages++;
-      }
-
       pageContexts.push({
-        pageNumber: startPage.pageNumber,
+        pageNumber: pageRow.pageNumber,
         text: unitText,
         prompt: result.prompt,
         setting: result.mood,
@@ -314,7 +385,7 @@ export async function runMultiPassReading(bookId: number): Promise<MultiPassResu
       promptsReady++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      await updatePage(startPage.id, {
+      await updatePage(pageRow.id, {
         promptStatus: "prompt_error",
         errorMessage: msg,
         skipSuggested: e instanceof EmptyPageError,

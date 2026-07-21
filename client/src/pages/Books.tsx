@@ -266,7 +266,7 @@ export default function Books() {
               <div>
                 <p className="font-medium mb-1">3. Generate Photos</p>
                 <p className="text-muted-foreground">
-                  Stage 2 renders only approved plot units — not a silent queue
+                  Stage 2 renders approved pages by page number — not a silent queue
                 </p>
               </div>
             </CardContent>

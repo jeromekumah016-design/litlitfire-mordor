@@ -238,7 +238,9 @@ export async function renderApprovedImages(
   let skipped = 0;
   let errors = 0;
 
-  for (const page of pages) {
+  // Render in ascending page number order
+  const ordered = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
+  for (const page of ordered) {
     // HARD SERVER GATE — no exceptions
     if (page.promptStatus !== "approved") {
       skipped++;
