@@ -63,11 +63,17 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
   });
 
-  // Start the automatic retry worker (skipped during tests)
-  const retryWorkerEnabled = process.env.RETRY_WORKER_ENABLED !== "false";
+  // Retry worker is OPT-IN. Audit P0 (qc/AUDIT-RECONCILIATION-2026-07-17.md):
+  // on this branch the worker is live and, combined with 1×1 thumbnails + prompt
+  // regeneration on retry, can burn money on garbage. Default OFF until the
+  // worker is rebuilt as render-only against persisted prompts. Set
+  // RETRY_WORKER_ENABLED=true to re-enable intentionally.
+  const retryWorkerEnabled = process.env.RETRY_WORKER_ENABLED === "true";
   const retryIntervalMs = parseInt(process.env.RETRY_WORKER_INTERVAL_MS || "30000");
   if (retryWorkerEnabled && process.env.NODE_ENV !== "test") {
     startRetryWorker({ maxConcurrentRetries: 3, pollIntervalMs: retryIntervalMs, enabled: true });
+  } else if (process.env.NODE_ENV !== "test") {
+    console.log("[RetryWorker] disabled (set RETRY_WORKER_ENABLED=true to enable)");
   }
 
   // Graceful shutdown
