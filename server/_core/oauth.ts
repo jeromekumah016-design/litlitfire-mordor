@@ -48,10 +48,15 @@ export async function establishDemoSession(req: Request, res: Response): Promise
 export function registerOAuthRoutes(app: Express) {
   // Redirect to Google OAuth consent screen — or demo login when Google is not configured
   app.get("/api/auth/google", async (req: Request, res: Response) => {
+    // Optional post-login path (must be same-origin relative)
+    const rawNext = typeof req.query.next === "string" ? req.query.next : "/";
+    const nextPath =
+      rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+
     if (!ENV.googleClientId) {
       try {
         await establishDemoSession(req, res);
-        res.redirect(302, "/");
+        res.redirect(302, nextPath);
       } catch (err) {
         console.error("[OAuth] Demo login failed:", err);
         res.status(500).json({

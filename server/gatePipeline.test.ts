@@ -28,10 +28,14 @@ vi.mock("./db", () => ({
   updateBook: vi.fn(),
   getPage: vi.fn(),
 }));
+vi.mock("./_core/llm", () => ({
+  invokeLLM: vi.fn(),
+}));
 
 import { extractPDFPages } from "./pdfService";
 import { buildStoryContext, generateImagePrompt } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
+import { invokeLLM } from "./_core/llm";
 import {
   createPage,
   updatePage,
@@ -57,6 +61,23 @@ const mGetPages = vi.mocked(getBookPages);
 const mGetBook = vi.mocked(getBook);
 const mUpdateBook = vi.mocked(updateBook);
 const mGetPage = vi.mocked(getPage);
+const mLlm = vi.mocked(invokeLLM);
+
+function offlineJson(payload: unknown) {
+  return {
+    id: "t",
+    created: 0,
+    model: "test",
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant" as const, content: JSON.stringify(payload) },
+        finish_reason: "stop" as const,
+      },
+    ],
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -67,6 +88,40 @@ beforeEach(() => {
     processingStatus: "pending",
     storyBible: null,
   } as any);
+  mLlm.mockImplementation(async (params: any) => {
+    const name = params?.response_format?.json_schema?.name;
+    if (name === "book_genres") {
+      return offlineJson({
+        genres: ["narrative fiction"],
+        confidence: "high",
+        notes: "test",
+      }) as any;
+    }
+    if (name === "plot_map") {
+      return offlineJson({
+        authorIntent: "Illustrate the journey",
+        plotUnits: [
+          {
+            unitIndex: 0,
+            sourcePageFrom: 1,
+            sourcePageTo: 1,
+            role: "main",
+            title: "Opening",
+            rationale: "main beat",
+          },
+          {
+            unitIndex: 1,
+            sourcePageFrom: 2,
+            sourcePageTo: 2,
+            role: "main",
+            title: "Arrival",
+            rationale: "main beat",
+          },
+        ],
+      }) as any;
+    }
+    return offlineJson({}) as any;
+  });
 });
 
 describe("extractAndStorePages", () => {
@@ -98,28 +153,59 @@ describe("extractAndStorePages", () => {
 });
 
 describe("transcribeBook", () => {
-  it("persists storyBible once and sets prompt_ready", async () => {
-    const bible = { artStyle: "oil", characters: [], factions: [], locations: [], keyObjects: [], chronology: [], visualMotifs: [], relationships: [], tone: "n", setting: "s", timePeriod: "t", narrativeSummary: "sum" };
+  it("multi-pass: persists bible + readingProfile and sets prompt_ready on main units", async () => {
+    const bible = {
+      artStyle: "oil",
+      characters: [],
+      factions: [],
+      locations: [],
+      keyObjects: [],
+      chronology: [],
+      visualMotifs: [],
+      relationships: [],
+      tone: "n",
+      setting: "s",
+      timePeriod: "t",
+      narrativeSummary: "sum",
+    };
     mGetPages.mockResolvedValue([
-      { id: 10, pageNumber: 1, ocrText: "Once upon a time in a riverside town with plenty of words", promptStatus: "pending" },
-      { id: 11, pageNumber: 2, ocrText: "Captain Ellis arrived with a weathered map of the coast", promptStatus: "pending" },
+      {
+        id: 10,
+        pageNumber: 1,
+        ocrText: "Once upon a time in a riverside town with plenty of words",
+        promptStatus: "pending",
+      },
+      {
+        id: 11,
+        pageNumber: 2,
+        ocrText: "Captain Ellis arrived with a weathered map of the coast",
+        promptStatus: "pending",
+      },
     ] as any);
     mBible.mockResolvedValue(bible as any);
-    mGetBook
-      .mockResolvedValueOnce({ id: 1, storyBible: null } as any)
-      .mockResolvedValue({ id: 1, storyBible: bible } as any);
+    mGetBook.mockResolvedValue({ id: 1, storyBible: bible } as any);
     mPrompt.mockResolvedValue({ prompt: "LLM prompt", style: "oil", mood: "calm" });
 
     const result = await transcribeBook(1);
 
     expect(mBible).toHaveBeenCalledTimes(1);
     expect(mUpdateBook).toHaveBeenCalledWith(1, { storyBible: bible });
+    expect(mUpdateBook).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        readingProfile: expect.objectContaining({
+          genres: expect.arrayContaining(["narrative fiction"]),
+          authorIntent: expect.any(String),
+        }),
+      })
+    );
     expect(mPrompt).toHaveBeenCalledTimes(2);
     expect(mUpdatePage).toHaveBeenCalledWith(
       10,
       expect.objectContaining({ promptStatus: "prompt_ready", generatedPrompt: "LLM prompt" })
     );
     expect(result.biblePersisted).toBe(true);
+    expect(result.genres).toEqual(["narrative fiction"]);
     expect(mGen).not.toHaveBeenCalled();
   });
 });

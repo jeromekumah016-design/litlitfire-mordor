@@ -72,9 +72,15 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
         colors: ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b"],
       });
 
-      toast.success(`Book "${data.title}" uploaded successfully! Processing ${data.pageCount} pages.`);
+      const extracted =
+        "pagesExtracted" in data && typeof (data as { pagesExtracted?: number }).pagesExtracted === "number"
+          ? (data as { pagesExtracted: number }).pagesExtracted
+          : data.pageCount;
+      toast.success(
+        `Book "${data.title}" saved — extracted ${extracted} page(s). Multi-pass reading is building prompts; open the book to approve, then generate.`
+      );
 
-      // Invalidate list so new book + processing status shows immediately in Your Books (basic functionality)
+      // Invalidate list so new book shows immediately in Your Books
       utils.books.list.invalidate().catch(() => {});
 
       // Reset form after success animation
@@ -89,7 +95,16 @@ const PDFUploadFormContent = memo(function PDFUploadFormContent() {
       }, 2000);
     },
     onError: (error) => {
-      toast.error(`Upload failed: ${error.message}`);
+      const msg = error.message || "Unknown error";
+      const needsLogin =
+        msg.includes("UNAUTHORIZED") ||
+        msg.toLowerCase().includes("login") ||
+        (error as { data?: { code?: string } }).data?.code === "UNAUTHORIZED";
+      toast.error(
+        needsLogin
+          ? "You must sign in before uploading. Use Sign in on the Library page."
+          : `Upload failed: ${msg}`
+      );
       setUploadProgress(0);
     },
   });

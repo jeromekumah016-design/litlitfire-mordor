@@ -37,6 +37,9 @@ interface BookPageReadingDashboardProps {
     pageCount: number;
     processingStatus: string;
     storyBible?: unknown;
+    readingProfile?: unknown;
+    pipelinePhase?: string;
+    pipelineLabel?: string;
     pages: Page[];
   };
   /** @deprecated use Stage buttons; kept for call-site compat */
@@ -46,8 +49,8 @@ interface BookPageReadingDashboardProps {
 
 /**
  * Two-phase review dashboard (functional bar §2–3).
- * Stage 1: Transcribe → storyBible + prompts
- * Review: approve per page (server enforces promptStatus === approved for render)
+ * Stage 1: Multi-pass reading → storyBible + prompts
+ * Review: approve per page (or Approve all); server enforces gate for render
  * Stage 2: Render only approved pages
  */
 export default function BookPageReadingDashboard({
@@ -59,13 +62,17 @@ export default function BookPageReadingDashboard({
   const [searchTerm, setSearchTerm] = useState("");
 
   const utils = trpc.useUtils();
-  const invalidate = () => utils.books.getDetails.invalidate({ bookId: book.id });
+  const invalidate = () => {
+    void utils.books.getDetails.invalidate({ bookId: book.id });
+    void utils.books.list.invalidate();
+  };
 
   const stage1Mut = trpc.books.transcribePages.useMutation({
     onSuccess: (data) => {
       toast.success(
-        `Transcribed ${data.transcribed} page(s)` +
-          (data.biblePersisted ? " · story bible saved" : " · no bible (empty text?)")
+        `Built ${data.transcribed} prompt(s)` +
+          (data.biblePersisted ? " · story bible saved" : " · no bible (empty text?)") +
+          (data.genres?.length ? ` · ${data.genres.join(", ")}` : "")
       );
       invalidate();
     },
@@ -74,6 +81,14 @@ export default function BookPageReadingDashboard({
 
   const approveMut = trpc.books.setPromptApproved.useMutation({
     onSuccess: () => invalidate(),
+    onError: (e) => toast.error(e.message),
+  });
+
+  const approveAllMut = trpc.books.approveAllPrompts.useMutation({
+    onSuccess: (data) => {
+      toast.success(data.message);
+      invalidate();
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -106,6 +121,9 @@ export default function BookPageReadingDashboard({
 
   const hasPages = pages.length > 0;
   const approvedCount = pages.filter((p) => p.promptStatus === "approved").length;
+  const promptReadyOnlyCount = pages.filter(
+    (p) => p.promptStatus === "prompt_ready"
+  ).length;
   const promptReadyCount = pages.filter(
     (p) => p.promptStatus === "prompt_ready" || p.promptStatus === "approved"
   ).length;
@@ -113,6 +131,8 @@ export default function BookPageReadingDashboard({
   const currentIndex = pages.findIndex((p) => p.pageNumber === selectedPageNumber);
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < pages.length - 1;
+  const phase = book.pipelinePhase;
+  const isReading = phase === "reading" || book.processingStatus === "processing";
 
   const getStatusBadge = (p: Page) => {
     if (p.imageStatus === "image_ready")
@@ -125,6 +145,8 @@ export default function BookPageReadingDashboard({
       return <Badge className="bg-green-600 text-white text-xs">Prompt Ready</Badge>;
     if (p.promptStatus === "transcribing")
       return <Badge className="bg-blue-500 text-white text-xs">Transcribing</Badge>;
+    if (p.skipSuggested)
+      return <Badge variant="outline" className="text-xs">Skipped (non-plot)</Badge>;
     if (p.promptStatus === "prompt_error" || p.imageStatus === "image_error")
       return <Badge variant="destructive" className="text-xs">Error</Badge>;
     if (p.ocrText)
@@ -133,7 +155,24 @@ export default function BookPageReadingDashboard({
   };
 
   const busy =
-    stage1Mut.isPending || stage2Mut.isPending || approveMut.isPending;
+    stage1Mut.isPending ||
+    stage2Mut.isPending ||
+    approveMut.isPending ||
+    approveAllMut.isPending ||
+    isReading;
+
+  const nextStepBanner =
+    phase === "reading" || isReading
+      ? "Reading book (genre → plot → prompts)… this page will update when prompts are ready."
+      : phase === "needs_approve" || (promptReadyOnlyCount > 0 && approvedCount === 0)
+        ? `Next: approve prompts (${promptReadyOnlyCount} ready), then Stage 2 generate.`
+        : phase === "ready_to_render" || (approvedCount > 0 && imageReadyCount < approvedCount)
+          ? `Next: Stage 2 Generate Photos (${approvedCount} approved).`
+          : phase === "photos_ready"
+            ? "Photos ready — open the gallery when you want."
+            : phase === "extracted" || (hasPages && promptReadyCount === 0)
+              ? "Next: Stage 1 builds multi-pass prompts (or wait if upload auto-read is running)."
+              : null;
 
   return (
     <div className="space-y-4">
@@ -145,7 +184,8 @@ export default function BookPageReadingDashboard({
               Prompt Review &amp; Photo Generation
             </h2>
             <p className="text-sm text-muted-foreground">
-              Stage 1: Transcribe → review &amp; approve → Stage 2: Generate photos
+              {book.pipelineLabel ||
+                "Stage 1: multi-pass reading → approve → Stage 2: generate photos"}
               {book.storyBible ? " · story bible saved" : ""}
             </p>
           </div>
@@ -157,7 +197,19 @@ export default function BookPageReadingDashboard({
             variant="outline"
             className="gap-2"
           >
-            {stage1Mut.isPending ? "Transcribing…" : "Stage 1: Transcribe → Prompts"}
+            {stage1Mut.isPending || isReading
+              ? "Reading…"
+              : "Stage 1: Build prompts"}
+          </Button>
+          <Button
+            onClick={() => approveAllMut.mutate({ bookId: book.id })}
+            disabled={busy || promptReadyOnlyCount === 0}
+            variant="secondary"
+            className="gap-2"
+          >
+            {approveAllMut.isPending
+              ? "Approving…"
+              : `Approve all (${promptReadyOnlyCount})`}
           </Button>
           <Button
             onClick={() => stage2Mut.mutate({ bookId: book.id })}
@@ -170,6 +222,12 @@ export default function BookPageReadingDashboard({
           </Button>
         </div>
       </div>
+
+      {nextStepBanner && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {nextStepBanner}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
         <span>Pages: {pages.length}</span>

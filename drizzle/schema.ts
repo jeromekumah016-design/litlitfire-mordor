@@ -67,8 +67,10 @@ export const books = pgTable(
     // "scene" = multiple distinct scenes per book (scenes table). Controls
     // which table the pipeline writes to. No dual writes; no synthetic rows.
     generationMode: generationModeEnum("generationMode").default("page").notNull(),
-    // Persisted visual bible (StoryContext JSON). Built once in transcribe; reused on render.
+    // Persisted visual bible (StoryContext JSON). Built once in reading pass; reused on render.
     storyBible: jsonb("storyBible"),
+    // Multi-pass reading: genres, authorIntent, plotUnits (main vs skip).
+    readingProfile: jsonb("readingProfile"),
     totalPrice: numeric("totalPrice", { precision: 10, scale: 2 }).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().notNull(),

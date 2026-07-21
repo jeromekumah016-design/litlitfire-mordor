@@ -11,17 +11,43 @@ import PDFPreviewCarouselOptimized from "@/components/PDFPreviewCarouselOptimize
 import DevModeDiagnostics from "./DevModeDiagnostics";
 import BookListCard from "@/components/BookListCard";
 import BookPageReadingDashboard from "@/components/BookPageReadingDashboard";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { getLoginUrl } from "@/const";
 
 export default function Books() {
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [, setLocation] = useLocation();
   const pageSize = 10;
+  const { user, loading: authLoading, isAuthenticated } = useAuth();
 
-  const booksQuery = trpc.books.list.useQuery({ page: currentPage, pageSize });
+  const booksQuery = trpc.books.list.useQuery(
+    { page: currentPage, pageSize },
+    {
+      enabled: isAuthenticated,
+      retry: false,
+      // Poll while any book is still reading / waiting for Stage 1 so phase advances.
+      refetchInterval: (query) => {
+        const items = (query.state.data as { items?: { pipelinePhase?: string }[] } | undefined)
+          ?.items;
+        if (!items?.length) return false;
+        const busy = items.some(
+          (b) => b.pipelinePhase === "reading" || b.pipelinePhase === "extracted"
+        );
+        return busy ? 3000 : false;
+      },
+    }
+  );
   const bookDetailsQuery = trpc.books.getDetails.useQuery(
     { bookId: selectedBookId! },
-    { enabled: !!selectedBookId }
+    {
+      enabled: isAuthenticated && !!selectedBookId,
+      refetchInterval: (query) => {
+        const phase = (query.state.data as { pipelinePhase?: string } | undefined)
+          ?.pipelinePhase;
+        return phase === "reading" || phase === "extracted" ? 3000 : false;
+      },
+    }
   );
   const transcribeMutation = trpc.books.transcribePages.useMutation({
     onSuccess: (data) => {
@@ -43,6 +69,29 @@ export default function Books() {
   const handleViewBook = (bookId: number) => {
     setSelectedBookId(bookId);
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-[50vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-8">
+        <h1 className="text-2xl font-semibold text-center">Sign in to add books</h1>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          Uploading and listing books requires a session. Locally this uses demo
+          login (no Google account needed when Google OAuth is not configured).
+        </p>
+        <Button asChild size="lg">
+          <a href={getLoginUrl("/books")}>Sign in</a>
+        </Button>
+      </div>
+    );
+  }
 
   if (selectedBookId && bookDetailsQuery.data) {
     const book = bookDetailsQuery.data;
@@ -87,7 +136,10 @@ export default function Books() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
-                  <p className="font-medium capitalize">{(book as any).processingStatus}</p>
+                  <p className="font-medium">
+                    {(book as any).pipelineLabel ||
+                      String((book as any).processingStatus)}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Created</p>
@@ -96,27 +148,49 @@ export default function Books() {
                   </p>
                 </div>
 
-                {(book as any).processingStatus === "pending" && (
+                {((book as any).pipelinePhase === "extracted" ||
+                  (book as any).pipelinePhase === "reading" ||
+                  (!(book as any).pipelinePhase &&
+                    (book as any).processingStatus === "pending")) && (
                   <Button
                     onClick={() => handleTranscribe((book as any).id)}
-                    disabled={transcribeMutation.isPending}
+                    disabled={
+                      transcribeMutation.isPending ||
+                      (book as any).pipelinePhase === "reading"
+                    }
                     className="w-full"
                   >
-                    {transcribeMutation.isPending ? (
+                    {transcribeMutation.isPending ||
+                    (book as any).pipelinePhase === "reading" ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Transcribing...
+                        Reading book…
                       </>
                     ) : (
                       <>
                         <Play className="mr-2 h-4 w-4" />
-                        Stage 1: Transcribe
+                        Stage 1: Build prompts
                       </>
                     )}
                   </Button>
                 )}
 
-                {(book as any).pages.some((p: any) => p.generatedImageUrl) && (
+                {(book as any).pipelinePhase === "needs_approve" && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2">
+                    Prompts ready — approve them in the dashboard, then Stage 2
+                    generate.
+                  </p>
+                )}
+
+                {(book as any).pipelinePhase === "ready_to_render" && (
+                  <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md p-2">
+                    {(book as any).approvedCount ?? 0} approved — use Stage 2 to
+                    generate photos.
+                  </p>
+                )}
+
+                {((book as any).imageReadyCount > 0 ||
+                  (book as any).pages?.some((p: any) => p.generatedImageUrl)) && (
                   <Button
                     onClick={() => setLocation(`/gallery/${(book as any).id}`)}
                     className="w-full bg-amber-600 hover:bg-amber-700"
@@ -179,15 +253,21 @@ export default function Books() {
             <CardContent className="space-y-4 text-sm">
               <div>
                 <p className="font-medium mb-1">1. Upload PDF</p>
-                <p className="text-muted-foreground">Select a PDF file to get started</p>
+                <p className="text-muted-foreground">
+                  Text is extracted; multi-pass reading builds genre-aware prompts
+                </p>
               </div>
               <div>
-                <p className="font-medium mb-1">2. Reading &amp; Review</p>
-                <p className="text-muted-foreground">Open the book in the Page Reading Dashboard to read extracted pages</p>
+                <p className="font-medium mb-1">2. Approve prompts</p>
+                <p className="text-muted-foreground">
+                  Open the book, review prompts, approve (or Approve all) before photos
+                </p>
               </div>
               <div>
                 <p className="font-medium mb-1">3. Generate Photos</p>
-                <p className="text-muted-foreground">Use the dashboard button to create AI illustrations from the book text</p>
+                <p className="text-muted-foreground">
+                  Stage 2 renders only approved plot units — not a silent queue
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -218,6 +298,11 @@ export default function Books() {
                     pageCount={book.pageCount}
                     processingStatus={book.processingStatus}
                     createdAt={book.createdAt}
+                    pipelinePhase={book.pipelinePhase}
+                    pipelineLabel={book.pipelineLabel}
+                    promptReadyCount={book.promptReadyCount}
+                    approvedCount={book.approvedCount}
+                    imageReadyCount={book.imageReadyCount}
                     onView={() => handleViewBook(book.id)}
                     onDelete={() => {
                       toast.success(`Book deleted`);

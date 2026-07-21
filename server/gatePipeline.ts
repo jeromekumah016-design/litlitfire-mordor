@@ -102,87 +102,27 @@ export type TranscribeResult = {
   transcribed: number;
   errors: number;
   biblePersisted: boolean;
+  genres?: string[];
+  mainUnits?: number;
+  skippedPages?: number;
 };
 
 /**
- * Transcribe phase (functional bar §2): persist storyBible once, generate prompts.
+ * Multi-pass reading (functional bar §2 + product plan):
+ * genre discovery → plot map + storyBible → prompts for main plot units only.
  */
 export async function transcribeBook(bookId: number): Promise<TranscribeResult> {
-  const book = await getBook(bookId);
-  if (!book) throw new Error(`Book ${bookId} not found`);
-
-  const pages = await getBookPages(bookId);
-  if (pages.length === 0) {
-    throw new Error(
-      "No pages extracted yet — run extract (upload) before transcribe"
-    );
-  }
-
-  const texts = pages.map((p) => p.ocrText || "");
-  let bible: StoryContext | null = (book as any).storyBible as StoryContext | null;
-
-  if (!bible) {
-    bible = await buildStoryContext(texts);
-    if (bible) {
-      await updateBook(bookId, { storyBible: bible as any });
-    }
-  }
-
-  const biblePersisted = !!(await getBook(bookId) as any)?.storyBible;
-  let transcribed = 0;
-  let errors = 0;
-  const pageContexts: { pageNumber: number; text: string; prompt: string; setting?: string }[] = [];
-
-  for (const page of pages) {
-    if (page.promptStatus === "approved" || page.promptStatus === "prompt_ready") {
-      if (page.generatedPrompt) {
-        pageContexts.push({
-          pageNumber: page.pageNumber,
-          text: page.ocrText || "",
-          prompt: page.generatedPrompt,
-        });
-      }
-      transcribed++;
-      continue;
-    }
-
-    await updatePage(page.id, { promptStatus: "transcribing" });
-    try {
-      const result = await generateImagePrompt(
-        page.ocrText || "",
-        page.pageNumber,
-        pageContexts.length ? pageContexts : undefined,
-        bible
-      );
-      await updatePage(page.id, {
-        promptStatus: "prompt_ready",
-        generatedPrompt: result.prompt,
-        promptStructured: {
-          style: result.style ?? null,
-          mood: result.mood ?? null,
-        } as any,
-        errorMessage: null,
-      });
-      pageContexts.push({
-        pageNumber: page.pageNumber,
-        text: page.ocrText || "",
-        prompt: result.prompt,
-        setting: result.mood,
-      });
-      transcribed++;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const isEmpty = e instanceof EmptyPageError;
-      await updatePage(page.id, {
-        promptStatus: "prompt_error",
-        errorMessage: msg,
-        skipSuggested: isEmpty,
-      });
-      errors++;
-    }
-  }
-
-  return { bookId, transcribed, errors, biblePersisted };
+  const { runMultiPassReading } = await import("./readingPipeline");
+  const result = await runMultiPassReading(bookId);
+  return {
+    bookId: result.bookId,
+    transcribed: result.promptsReady,
+    errors: result.errors,
+    biblePersisted: result.biblePersisted,
+    genres: result.genres,
+    mainUnits: result.mainUnits,
+    skippedPages: result.skippedPages,
+  };
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   setPagePromptApproval,
   renderApprovedImages,
 } from "./gatePipeline";
+import { derivePipelinePhase, type PipelinePhase } from "./readingPipeline";
 import { calculatePrice } from "./pricingService";
 import {
   PIPELINE_MAX_PAGES,
@@ -97,6 +98,11 @@ type BookListItem = {
   totalPrice: number;
   processingStatus: string;
   createdAt: Date;
+  pipelinePhase: PipelinePhase;
+  pipelineLabel: string;
+  promptReadyCount: number;
+  approvedCount: number;
+  imageReadyCount: number;
 };
 type BooksListResult = {
   items: BookListItem[];
@@ -133,6 +139,12 @@ type BookDetailsResult = {
   processingStatus: string;
   generationMode: string;
   storyBible?: unknown;
+  readingProfile?: unknown;
+  pipelinePhase: PipelinePhase;
+  pipelineLabel: string;
+  promptReadyCount: number;
+  approvedCount: number;
+  imageReadyCount: number;
   pages: BookDetailsPageItem[];
   createdAt: Date;
 };
@@ -196,6 +208,22 @@ export const booksRouter = router({
         // client will pass imageParams to renderApprovedImages when rendering.
         void input.imageParams;
 
+        // Auto Stage 1: multi-pass reading (genre → plot → prompts). Does NOT
+        // auto-approve or auto-render — human gate stays before generate.
+        await updateBook(book.id, { processingStatus: "processing" } as any);
+        void transcribeBook(book.id)
+          .then((r) => {
+            console.log(
+              `[Books Router] auto multi-pass done book=${book.id} prompts=${r.transcribed} genres=${(r.genres || []).join(",")}`
+            );
+            invalidateUserCache(userId);
+          })
+          .catch((err) => {
+            console.error(`[Books Router] auto multi-pass failed book=${book.id}:`, err);
+            void updateBook(book.id, { processingStatus: "pending" } as any).catch(() => {});
+            invalidateUserCache(userId);
+          });
+
         const pagesWillProcess = Math.min(metadata.totalPages, PIPELINE_MAX_PAGES);
         const pageCapWarning = metadata.totalPages > PIPELINE_MAX_PAGES ? `Only the first ${PIPELINE_MAX_PAGES} of ${metadata.totalPages} pages will be processed.` : undefined;
 
@@ -207,10 +235,11 @@ export const booksRouter = router({
           pagesExtracted: extracted,
           pageCapWarning,
           totalPrice: Number(book.totalPrice),
-          processingStatus: "pending" as const,
+          processingStatus: "processing" as const,
           autoRenderStarted: false,
-          phase: "extracted" as const,
-          message: "PDF stored and text extracted. Run transcribe → approve → render.",
+          phase: "reading" as const,
+          message:
+            "PDF stored and text extracted. Multi-pass reading started — approve prompts, then generate photos.",
         };
       } catch (error) {
         console.error("[Books Router] Upload error:", error);
@@ -270,11 +299,40 @@ export const booksRouter = router({
         const userBooks = await getUserBooks(userId);
         const totalCount = userBooks.length;
         const paginatedBooks = userBooks.slice(offset, offset + input.pageSize);
+        const items: BookListItem[] = await Promise.all(
+          paginatedBooks.map(async (book) => {
+            const pages = (await getBookPages(book.id)) || [];
+            const phase = derivePipelinePhase(book.processingStatus, pages);
+            return {
+              id: book.id,
+              title: book.title,
+              description: book.description,
+              pageCount: book.pageCount,
+              totalPrice: Number(book.totalPrice),
+              processingStatus: book.processingStatus,
+              createdAt: book.createdAt,
+              pipelinePhase: phase.phase,
+              pipelineLabel: phase.label,
+              promptReadyCount: phase.promptReadyCount,
+              approvedCount: phase.approvedCount,
+              imageReadyCount: phase.imageReadyCount,
+            };
+          })
+        );
         const result: BooksListResult = {
-          items: paginatedBooks.map((book) => ({ id: book.id, title: book.title, description: book.description, pageCount: book.pageCount, totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus, createdAt: book.createdAt })),
-          pagination: { page: input.page, pageSize: input.pageSize, totalCount, totalPages: Math.ceil(totalCount / input.pageSize) },
+          items,
+          pagination: {
+            page: input.page,
+            pageSize: input.pageSize,
+            totalCount,
+            totalPages: Math.ceil(totalCount / input.pageSize),
+          },
         };
-        setInCache(cacheKey, result);
+        // Skip long cache while any book is still reading/extracting so UI advances.
+        const anyActive = items.some(
+          (b) => b.pipelinePhase === "reading" || b.pipelinePhase === "extracted"
+        );
+        if (!anyActive) setInCache(cacheKey, result);
         return result;
       } catch (error) {
         console.error("[Books Router] List error:", error);
@@ -339,15 +397,28 @@ export const booksRouter = router({
             nextRetryAt: page.nextRetryAt,
           }));
         }
+        const phase = derivePipelinePhase(book.processingStatus, pageItems);
         const result: BookDetailsResult = {
           id: book.id, title: book.title, description: book.description, pageCount: book.pageCount,
           totalPrice: Number(book.totalPrice), processingStatus: book.processingStatus,
           generationMode: (book as any).generationMode ?? "page",
           storyBible: (book as any).storyBible ?? null,
+          readingProfile: (book as any).readingProfile ?? null,
+          pipelinePhase: phase.phase,
+          pipelineLabel: phase.label,
+          promptReadyCount: phase.promptReadyCount,
+          approvedCount: phase.approvedCount,
+          imageReadyCount: phase.imageReadyCount,
           pages: pageItems,
           createdAt: book.createdAt,
         };
-        setInCache(cacheKey, result);
+        // Don't cache mid-pipeline so Stage 1 / approve / render show up immediately.
+        if (
+          phase.phase !== "reading" &&
+          phase.phase !== "extracted"
+        ) {
+          setInCache(cacheKey, result);
+        }
         return result;
       } catch (error) {
         console.error("[Books Router] Get details error:", error);
@@ -524,6 +595,53 @@ export const booksRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: error instanceof Error ? error.message : "Approve failed",
+        });
+      }
+    }),
+
+  /**
+   * Approve every prompt_ready page with a non-empty prompt (bulk human gate).
+   * Does not render — Stage 2 remains explicit.
+   */
+  approveAllPrompts: protectedProcedure
+    .input(z.object({ bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const userId = ctx.user.id;
+        const book = await getBook(input.bookId);
+        if (!book) throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        if (book.userId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Not your book" });
+
+        const pages = (await getBookPages(input.bookId)) || [];
+        let approved = 0;
+        let skipped = 0;
+        for (const page of pages) {
+          if (page.promptStatus === "approved") {
+            skipped++;
+            continue;
+          }
+          if (page.promptStatus !== "prompt_ready" || !page.generatedPrompt?.trim()) {
+            skipped++;
+            continue;
+          }
+          await setPagePromptApproval(page.id, true);
+          approved++;
+        }
+        invalidateUserCache(userId);
+        return {
+          bookId: input.bookId,
+          approved,
+          skipped,
+          message:
+            approved > 0
+              ? `Approved ${approved} prompt(s) — ready for Stage 2 generate`
+              : "No prompt_ready pages to approve",
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "Approve-all failed",
         });
       }
     }),

@@ -901,7 +901,8 @@ describe("booksRouter.upload — validation", () => {
     expect(result.pagesWillProcess).toBe(20);
     expect(result.pageCapWarning).toMatch(/Only the first 20 of 21/);
     expect(result.autoRenderStarted).toBe(false);
-    expect(result.phase).toBe("extracted");
+    // Multi-pass reading auto-starts after extract (still no render).
+    expect(result.phase).toBe("reading");
   });
 
   it("returns pagesWillProcess=10 with NO warning for a 10-page PDF", async () => {
@@ -920,7 +921,7 @@ describe("booksRouter.upload — validation", () => {
     expect(result.pageCapWarning).toBeUndefined();
   });
 
-  it("upload stores+OCRs only — never auto-starts full render", async () => {
+  it("upload extracts + auto multi-pass — never auto-starts full render", async () => {
     vi.mocked(getPDFMetadata).mockResolvedValue({ totalPages: 5 });
     vi.mocked(createBook as any).mockResolvedValue(
       makeBook({ id: 4, pageCount: 5, processingStatus: "pending" })
@@ -934,9 +935,10 @@ describe("booksRouter.upload — validation", () => {
       pdfData: Buffer.alloc(10).toString("base64"),
     });
 
-    expect(result.processingStatus).toBe("pending");
+    // Reading may run async; status flips to processing; DALL·E still gated.
+    expect(result.processingStatus).toBe("processing");
     expect(result.autoRenderStarted).toBe(false);
-    expect(result.phase).toBe("extracted");
+    expect(result.phase).toBe("reading");
     expect(extractAndStorePages).toHaveBeenCalled();
     expect(processBookPipeline).not.toHaveBeenCalled();
   });
@@ -1233,6 +1235,10 @@ describe("booksRouter.list — pagination", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getUserBooks as any).mockResolvedValue(ALL_BOOKS);
+    // list now derives pipelinePhase from page rows
+    vi.mocked(getBookPages as any).mockResolvedValue([
+      { promptStatus: "approved", imageStatus: "image_ready", ocrText: "done" },
+    ]);
   });
 
   it("returns correct totalCount and totalPages for 12 books with pageSize=5", async () => {
