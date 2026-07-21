@@ -1,7 +1,6 @@
 import { extractPDFPages, generatePageThumbnail, extractSinglePageText } from "./pdfService";
 import {
   generateImagePrompt,
-  generateImagePromptsWithContext,
   buildStoryContext,
   type PageContext,
   type StoryContext,
@@ -33,18 +32,6 @@ export interface PipelineProgress {
   currentPage: number;
   status: "pending" | "processing" | "completed" | "failed";
   error?: string;
-}
-
-function extractCharactersFromText(text: string): string[] {
-  const characters: string[] = [];
-  const namePattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g;
-  const matches = text.match(namePattern) || [];
-  const commonWords = new Set(["The","And","But","For","With","From","That","This","Which","When","Where","Why","How"]);
-  matches.forEach((match) => { if (!commonWords.has(match) && characters.length < 5) characters.push(match); });
-  const uniqueCharacters: string[] = [];
-  const seen = new Set<string>();
-  for (const char of characters) { if (!seen.has(char)) { uniqueCharacters.push(char); seen.add(char); } }
-  return uniqueCharacters;
 }
 
 /**
@@ -108,12 +95,13 @@ async function processPagePipelineWithContext(
       processingStatus: "done",
     });
 
-    // FIX: accumulate context so subsequent pages benefit from previous ones
+    // FIX: accumulate context so subsequent pages benefit from previous ones.
+    // PageContext.characters is unused by generateImagePrompt (only pageNumber/
+    // text/prompt are read); identity comes from StoryContext, not regex names.
     previousContexts.push({
       pageNumber,
       text: ocrText,
       prompt: promptResult.prompt,
-      characters: extractCharactersFromText(ocrText),
       setting: promptResult.mood,
     });
 
