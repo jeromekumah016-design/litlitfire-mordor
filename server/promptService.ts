@@ -6,6 +6,28 @@ export interface GeneratedPrompt {
   mood?: string;
 }
 
+/**
+ * Thrown by generateImagePrompt when a page has no extractable text.
+ *
+ * Audit finding P0-4 (qc/AUDIT-RECONCILIATION-2026-07-17.md): the pipeline used
+ * to silently render a generic "An empty page, {style}" placeholder image for
+ * any page with no text — indistinguishable from a real illustration, so a
+ * scanned/image-only page with no text layer would produce fake-but-plausible
+ * art instead of surfacing that nothing was actually read. Retrying does not
+ * help this case (the text is still absent), so callers should record the page
+ * as permanently failed rather than scheduling an automatic retry.
+ */
+export class EmptyPageError extends Error {
+  constructor(public readonly pageNumber?: number) {
+    super(
+      pageNumber
+        ? `Page ${pageNumber} has no extractable text — refusing to render a generic placeholder image`
+        : "Page has no extractable text — refusing to render a generic placeholder image"
+    );
+    this.name = "EmptyPageError";
+  }
+}
+
 export interface PageContext {
   pageNumber: number;
   text: string;
@@ -334,12 +356,14 @@ export async function generateImagePrompt(
   previousContext?: PageContext[],
   storyContext?: StoryContext | null
 ): Promise<GeneratedPrompt> {
-  try {
-    if (!ocrText || ocrText.trim().length === 0) {
-      const style = storyContext?.artStyle ?? "minimalist illustration";
-      return { prompt: `An empty page, ${style}`, style, mood: "calm" };
-    }
+  if (!ocrText || ocrText.trim().length === 0) {
+    // Fail the page rather than generate generic art for text we never
+    // actually read. Not wrapped in the try/catch below: this is a distinct,
+    // non-retryable condition, not a transient LLM failure.
+    throw new EmptyPageError(pageNumber);
+  }
 
+  try {
     const truncatedText = ocrText.substring(0, 500);
 
     // ── Build system prompt from the visual bible ──────────────────────────

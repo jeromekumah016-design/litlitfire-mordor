@@ -47,11 +47,13 @@ import { extractPDFPages, generatePageThumbnail } from "./pdfService";
 import { extractTextFromImage } from "./ocrService";
 import { generateImage } from "./_core/imageGeneration";
 import { storagePut } from "./storage";
+import { markPageForRetry } from "./retryService";
 import { createPage, getBookPages, updateBook } from "./db";
 import {
   buildStoryContext,
   generateImagePrompt,
   generateImagePromptsWithContext,
+  EmptyPageError,
   type StoryContext,
 } from "./promptService";
 import { processBookPipeline } from "./pipelineService";
@@ -65,6 +67,7 @@ const mStoragePut = vi.mocked(storagePut);
 const mCreatePage = vi.mocked(createPage);
 const mGetBookPages = vi.mocked(getBookPages);
 const mUpdateBook = vi.mocked(updateBook);
+const mRetryPage = vi.mocked(markPageForRetry);
 
 // ── Locked bible fixture ────────────────────────────────────────────────────
 const LOCKED_ART_STYLE =
@@ -235,6 +238,35 @@ describe("story-bible consistency across a book (page-mode pipeline)", () => {
     }
     expect(mUpdateBook).toHaveBeenLastCalledWith(1, { processingStatus: "completed" });
   });
+
+  it("refuses to render a blank/no-text page as generic placeholder art — fails that page, permanently, without blocking the rest of the book", async () => {
+    stubLLM();
+    // Page 2 has no text layer at all (e.g. a scanned image page).
+    mExtractPages.mockResolvedValue({
+      totalPages: 3,
+      pages: [
+        { pageNumber: 1, text: PAGE_TEXTS[0] },
+        { pageNumber: 2, text: "" },
+        { pageNumber: 3, text: PAGE_TEXTS[2] },
+      ],
+    } as never);
+
+    const result = await processBookPipeline(1, Buffer.from("pdf"));
+
+    // The other two pages still succeed; only the blank page fails.
+    expect(result).toEqual({ successCount: 2, failureCount: 1 });
+    // No image was ever generated for the blank page — no generic art rendered.
+    expect(mGenImage).toHaveBeenCalledTimes(2);
+    // The failed page is recorded as an error...
+    expect(mCreatePage).toHaveBeenCalledWith(
+      expect.objectContaining({ pageNumber: 2, processingStatus: "error" })
+    );
+    // ...but NOT scheduled for automatic retry: the text will still be absent
+    // on retry, so retrying can't fix it (unlike a transient image-gen failure).
+    expect(mRetryPage).not.toHaveBeenCalled();
+    // Book still completes overall since 2 of 3 pages succeeded.
+    expect(mUpdateBook).toHaveBeenLastCalledWith(1, { processingStatus: "completed" });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -280,13 +312,11 @@ describe("promptService unit behaviour (bible construction + per-page prompting)
     expect(ctx).toBeNull();
   });
 
-  it("an empty page still renders in the locked art style, without an LLM call", async () => {
+  it("refuses to render an empty page — throws EmptyPageError instead of generic placeholder art, no LLM call", async () => {
     stubLLM();
 
-    const p = await generateImagePrompt("", 5, undefined, bible());
-
-    expect(p.prompt).toBe(`An empty page, ${LOCKED_ART_STYLE}`);
-    expect(p.style).toBe(LOCKED_ART_STYLE);
+    await expect(generateImagePrompt("", 5, undefined, bible())).rejects.toThrow(EmptyPageError);
+    await expect(generateImagePrompt("   ", 5, undefined, bible())).rejects.toThrow(/no extractable text/);
     expect(mLLM).not.toHaveBeenCalled();
   });
 

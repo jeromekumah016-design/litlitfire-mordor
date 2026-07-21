@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { extractPDFPages, getPDFMetadata } from "./pdfService";
+import { extractPDFPages, getPDFMetadata, extractSinglePageText } from "./pdfService";
 
 /**
  * Create a minimal valid PDF buffer for testing
@@ -109,6 +109,47 @@ describe("pdfService", () => {
         expect(page.width).toBe(result2.pages[idx].width);
         expect(page.height).toBe(result2.pages[idx].height);
       });
+    });
+  });
+
+  describe("extractSinglePageText", () => {
+    it("extracts the same text extractPDFPages reports for that page", async () => {
+      const fromBatch = await extractPDFPages(testPDFBuffer);
+      const single = await extractSinglePageText(testPDFBuffer, 1);
+
+      expect(single).toBe(fromBatch.pages[0].text);
+    });
+
+    it("returns a string containing the page's real text content", async () => {
+      const single = await extractSinglePageText(testPDFBuffer, 1);
+
+      // The fixture's content stream renders the literal string "Hello World".
+      expect(single).toContain("Hello World");
+    });
+
+    it("throws for a page number below 1", async () => {
+      await expect(extractSinglePageText(testPDFBuffer, 0)).rejects.toThrow(
+        /Invalid page number/
+      );
+    });
+
+    it("throws for a page number beyond the document's page count", async () => {
+      await expect(extractSinglePageText(testPDFBuffer, 999)).rejects.toThrow(
+        /Invalid page number/
+      );
+    });
+
+    it("throws for an invalid PDF buffer", async () => {
+      const invalidBuffer = Buffer.from("not a pdf");
+
+      await expect(extractSinglePageText(invalidBuffer, 1)).rejects.toThrow();
+    });
+
+    it("returns consistent text across multiple calls", async () => {
+      const first = await extractSinglePageText(testPDFBuffer, 1);
+      const second = await extractSinglePageText(testPDFBuffer, 1);
+
+      expect(first).toBe(second);
     });
   });
 

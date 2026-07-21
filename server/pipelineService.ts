@@ -1,7 +1,4 @@
-import { createHash } from "crypto";
-import { extractPDFPages, generatePageThumbnail } from "./pdfService";
-import { extractTextFromImage } from "./ocrService";
-import { ocrCacheService } from "./ocrCacheService";
+import { extractPDFPages, generatePageThumbnail, extractSinglePageText } from "./pdfService";
 import {
   generateImagePrompt,
   generateImagePromptsWithContext,
@@ -48,29 +45,6 @@ function extractCharactersFromText(text: string): string[] {
   const seen = new Set<string>();
   for (const char of characters) { if (!seen.has(char)) { uniqueCharacters.push(char); seen.add(char); } }
   return uniqueCharacters;
-}
-
-/**
- * OCR results are cached by content hash (SHA-256 of the rendered thumbnail)
- * plus a scope key (the thumbnail's storage key). The dominant retry path in
- * this app is "OCR already succeeded, image generation failed" -- the retry
- * worker (retryWorker.ts) re-invokes processPagePipeline from scratch, which
- * would otherwise re-run a full Tesseract pass on a page whose text we've
- * already extracted correctly. This is transcription-side only: it never
- * touches image generation, the prompt, or the story bible, so the OCR/
- * image-gen decoupling invariant is unaffected -- it just avoids redoing
- * work whose input (the page image bytes) hasn't changed.
- */
-export async function getOcrTextCached(thumbnailBuffer: Buffer, cacheScopeKey: string): Promise<string> {
-  const pageHash = createHash("sha256").update(thumbnailBuffer).digest("hex");
-  const cached = ocrCacheService.getCachedResult(pageHash, cacheScopeKey);
-  if (cached) {
-    console.log(`[Pipeline] OCR cache hit for ${cacheScopeKey} -- skipping Tesseract pass`);
-    return cached.text;
-  }
-  const ocrResult = await extractTextFromImage(thumbnailBuffer);
-  ocrCacheService.cacheResult(pageHash, cacheScopeKey, ocrResult.text, ocrResult.confidence);
-  return ocrResult.text;
 }
 
 /**
@@ -168,7 +142,14 @@ export async function processPagePipeline(
     const thumbnailBuffer = await generatePageThumbnail(pdfBuffer, pageNumber, 1.0);
     const thumbnailKey = `books/${bookId}/pages/${pageNumber}/thumbnail.png`;
     const { url: thumbnailUrl } = await storagePut(thumbnailKey, thumbnailBuffer, "image/png");
-    const ocrText = await getOcrTextCached(thumbnailBuffer, thumbnailKey);
+    // Real pdfjs text-layer extraction -- same mechanism processBookPipeline
+    // uses, scoped to this one page. NOT Tesseract-on-thumbnail: the thumbnail
+    // above is a placeholder (generatePageThumbnail returns a fixed 1x1 PNG;
+    // real thumbnails render client-side), so OCR against it could only ever
+    // return empty text -- and this path runs on every automatic retry, so it
+    // would silently blank out a page's real text on every retry. See
+    // extractSinglePageText's doc comment in pdfService.ts.
+    const ocrText = await extractSinglePageText(pdfBuffer, pageNumber);
     const promptResult = await generateImagePrompt(ocrText, pageNumber, undefined, undefined);
     let generatedImageUrl: string | null = null;
     let generatedImageKey: string | null = null;

@@ -445,6 +445,7 @@
 - [x] Preserve formatting and structure information (viewport dimensions preserved)
 
 ### Thumbnail Generation
+> AUDIT (2026-07-17/18, see STATUS_LOG.md + qc/AUDIT-RECONCILIATION-2026-07-17.md, finding H3): checkmarks below are false. `generatePageThumbnail` returns a hardcoded 1x1 PNG in production; real thumbnails were deferred to client-side rendering to avoid a native `canvas` dependency (which isn't installed). This was also silently feeding Tesseract OCR a blank image on the single-page retry path -- fixed 2026-07-18 by deriving retry-path text via pdfjs instead of OCR-on-thumbnail (see pdfService.extractSinglePageText), but real server-side rasterization itself is still not implemented. Needs Jerome's call: implement for real (canvas or alternative rasterizer), or update these checkboxes to reflect client-side-only.
 - [x] Replace 1x1 transparent PNG placeholders with real thumbnails (generateThumbnailForPage function)
 - [x] Implement canvas-based PDF page rendering (using canvas library with pdfjs-dist)
 - [x] Generate proper preview images for each page (canvas.toBuffer('image/png'))
