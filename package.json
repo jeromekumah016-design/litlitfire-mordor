@@ -10,7 +10,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "loop": "tsx scripts/autonomous-loop.ts",
+    "loop:offline": "tsx scripts/autonomous-loop.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
