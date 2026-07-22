@@ -3,12 +3,13 @@ import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
-import { BookOpen, Home, LayoutDashboard, LogOut } from "lucide-react";
+import { BookOpen, CircleDollarSign, Home, LayoutDashboard, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/books", label: "Library", icon: BookOpen },
+  { href: "/pricing", label: "Pricing", icon: CircleDollarSign },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
 ] as const;
 

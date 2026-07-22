@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { SiteHeader } from "@/components/SiteHeader";
+import { SiteShell } from "@/components/SiteShell";
 import { AlertCircle, BookOpen, Home } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -8,9 +8,8 @@ export default function NotFound() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-background">
-      <SiteHeader compact />
-      <div className="flex-1 flex items-center justify-center p-4">
+    <SiteShell compact>
+      <div className="flex items-center justify-center p-4 min-h-[50vh]">
         <Card className="w-full max-w-lg shadow-lg border-accent/20">
           <CardContent className="pt-8 pb-8 text-center">
             <div className="flex justify-center mb-6">
@@ -41,6 +40,6 @@ export default function NotFound() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </SiteShell>
   );
 }

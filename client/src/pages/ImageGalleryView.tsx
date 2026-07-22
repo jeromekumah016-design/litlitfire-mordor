@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import ImageGalleryVirtualized from "@/components/ImageGalleryVirtualized";
-import { SiteHeader } from "@/components/SiteHeader";
+import { SiteShell } from "@/components/SiteShell";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, RotateCcw, BookMarked, Sparkles } from "lucide-react";
 
@@ -44,23 +44,21 @@ export default function ImageGalleryView() {
 
   if (bookDetailsQuery.isLoading) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <SiteHeader compact />
-        <div className="flex items-center justify-center flex-1">
+      <SiteShell compact>
+        <div className="flex items-center justify-center min-h-[50vh]">
           <div className="text-center space-y-4">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto" />
             <p className="text-muted-foreground">Unveiling your visual story...</p>
           </div>
         </div>
-      </div>
+      </SiteShell>
     );
   }
 
   if (bookDetailsQuery.isError || !bookDetailsQuery.data) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <SiteHeader compact />
-        <div className="flex items-center justify-center flex-1">
+      <SiteShell compact>
+        <div className="flex items-center justify-center min-h-[50vh]">
           <div className="text-center space-y-4">
             <p className="text-red-500">Failed to load gallery</p>
             <div className="flex gap-2 justify-center">
@@ -74,7 +72,7 @@ export default function ImageGalleryView() {
             </div>
           </div>
         </div>
-      </div>
+      </SiteShell>
     );
   }
 
@@ -127,9 +125,8 @@ export default function ImageGalleryView() {
 
   if (generatedImages.length === 0) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <SiteHeader compact />
-        <div className="flex items-center justify-center flex-1">
+      <SiteShell compact>
+        <div className="flex items-center justify-center min-h-[50vh]">
           <div className="text-center space-y-6 max-w-md">
             <div className="flex justify-center">
               <BookMarked className="w-16 h-16 text-accent/50" />
@@ -153,13 +150,12 @@ export default function ImageGalleryView() {
             </div>
           </div>
         </div>
-      </div>
+      </SiteShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <SiteHeader compact />
+    <SiteShell compact className="bg-background">
       {/* Ambient background effects */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="ambient-light ambient-light-warm" style={{ width: '200px', height: '200px', top: '10%', left: '5%', animationDelay: '0s' }} />
@@ -242,17 +238,18 @@ export default function ImageGalleryView() {
         </div>
       </div>
 
-      {/* Footer with stats */}
-      <footer className="relative z-10 border-t border-accent/20 bg-background/50 backdrop-blur-md py-6">
+      {/* Stats strip (site footer is global SiteFooter) */}
+      <div className="relative z-10 border-t border-accent/20 bg-background/50 backdrop-blur-md py-6">
         <div className="max-w-7xl mx-auto px-4 text-center space-y-2">
           <p className="text-sm text-accent/70">
-            ✨ {generatedImages.length} pages of visual storytelling
+            ✨ {generatedImages.length} chapter illustration
+            {generatedImages.length !== 1 ? "s" : ""}
           </p>
           <p className="text-xs text-foreground/50">
-            Powered by advanced AI • Every image is unique to your story
+            Lite package · approve gate · offline-friendly
           </p>
         </div>
-      </footer>
-    </div>
+      </div>
+    </SiteShell>
   );
 }

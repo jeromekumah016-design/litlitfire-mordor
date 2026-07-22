@@ -8,38 +8,33 @@ import Home from "./pages/Home";
 import Books from "./pages/Books";
 import ImageGalleryView from "./pages/ImageGalleryView";
 import { LibraryDashboard } from "./pages/LibraryDashboard";
+import Pricing from "./pages/Pricing";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 import { useWebVitalsInit } from "./hooks/useWebVitalsInit";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/books"} component={Books} />
       <Route path={"/dashboard"} component={LibraryDashboard} />
       <Route path={"/gallery/:bookId"} component={ImageGalleryView} />
+      <Route path={"/pricing"} component={Pricing} />
+      <Route path={"/privacy"} component={Privacy} />
+      <Route path={"/terms"} component={Terms} />
       <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
-  // Initialize Web Vitals monitoring
   useWebVitalsInit();
 
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="dark"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
           <Router />

@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { SiteHeader } from "@/components/SiteHeader";
+import { SiteShell } from "@/components/SiteShell";
 import { Loader2, BookOpen, Wand2, Image } from "lucide-react";
 import { getLoginUrl } from "@/const";
 
@@ -16,7 +16,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background overflow-hidden">
+    <SiteShell className="overflow-hidden">
       {/* Mystical background with library atmosphere */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         {/* Background image with library shelves */}
@@ -40,10 +40,8 @@ export default function Home() {
         <div className="ambient-light ambient-light-cool" style={{ width: '140px', height: '140px', bottom: '20%', right: '20%', animationDelay: '3s' }} />
       </div>
 
-      <SiteHeader />
-
       {/* Main Content */}
-      <main className="flex-1 container mx-auto px-4 py-12 md:py-20 relative z-10">
+      <div className="container mx-auto px-4 py-12 md:py-20 relative z-10">
         {/* Hero Section with Grand Book Display */}
         <div className="max-w-6xl mx-auto space-y-16">
           {/* Grand Book Display - Central Hero Element */}
@@ -184,10 +182,7 @@ export default function Home() {
             </p>
           </div>
         </div>
-      </main>
-
-      {/* Decorative footer gradient */}
-      <div className="relative z-0 h-32 bg-gradient-to-t from-background/80 to-transparent" />
-    </div>
+      </div>
+    </SiteShell>
   );
 }

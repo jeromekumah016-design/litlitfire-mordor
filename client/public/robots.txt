@@ -1,0 +1,6 @@
+# LiteralLiterature — public crawl policy (SPA)
+User-agent: *
+Allow: /
+
+# Prefer sitemap when hosted under a real domain
+Sitemap: /sitemap.xml

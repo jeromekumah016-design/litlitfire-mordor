@@ -31,6 +31,7 @@ const menuItems = [
   { icon: Home, label: "Home", path: "/" },
   { icon: BookOpen, label: "Library", path: "/books" },
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
+  { icon: BookOpen, label: "Pricing", path: "/pricing" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

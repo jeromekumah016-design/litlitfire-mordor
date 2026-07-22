@@ -11,7 +11,7 @@ import PDFPreviewCarouselOptimized from "@/components/PDFPreviewCarouselOptimize
 import DevModeDiagnostics from "./DevModeDiagnostics";
 import BookListCard from "@/components/BookListCard";
 import BookPageReadingDashboard from "@/components/BookPageReadingDashboard";
-import { SiteHeader } from "@/components/SiteHeader";
+import { SiteShell } from "@/components/SiteShell";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 
@@ -96,19 +96,17 @@ export default function Books() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <SiteHeader compact />
+      <SiteShell compact>
         <div className="flex justify-center items-center min-h-[50vh]">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      </div>
+      </SiteShell>
     );
   }
 
   if (!isAuthenticated || !user) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <SiteHeader compact />
+      <SiteShell compact>
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-8">
           <h1 className="text-2xl font-semibold text-center">Sign in to add books</h1>
           <p className="text-sm text-muted-foreground text-center max-w-md">
@@ -119,15 +117,14 @@ export default function Books() {
             <a href={getLoginUrl("/books")}>Sign in</a>
           </Button>
         </div>
-      </div>
+      </SiteShell>
     );
   }
 
   if (selectedBookId && bookDetailsQuery.data) {
     const book = bookDetailsQuery.data;
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <SiteHeader compact />
+      <SiteShell compact>
       <div className="space-y-6 parchment-texture p-6 rounded-xl border border-accent/20 m-4">
         <div className="flex items-center justify-between gap-4 border-b border-accent/20 pb-4">
           <div className="flex items-center gap-4">
@@ -282,13 +279,12 @@ export default function Books() {
           </div>
         </div>
       </div>
-      </div>
+      </SiteShell>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <SiteHeader compact />
+    <SiteShell compact>
     <div className="space-y-8 p-6">
       <div>
         <h1 className="text-3xl font-bold mb-2">PDF Books</h1>
@@ -408,6 +404,6 @@ export default function Books() {
         )}
       </div>
     </div>
-    </div>
+    </SiteShell>
   );
 }
