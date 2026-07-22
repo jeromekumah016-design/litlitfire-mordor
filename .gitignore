@@ -119,3 +119,7 @@ _tmptest
 
 # Offline-mode local storage (stubbed images/thumbnails, no Cloudinary)
 .offline-storage/
+
+.pg-data-e2e/
+.offline-storage-e2e/
+

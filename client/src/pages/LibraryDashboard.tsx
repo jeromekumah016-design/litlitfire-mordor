@@ -25,6 +25,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { SiteHeader } from "@/components/SiteHeader";
 
 export function LibraryDashboard() {
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -64,13 +65,16 @@ export function LibraryDashboard() {
 
   if (overviewLoading || metricsLoading) {
     return (
-      <div className="container py-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-32 bg-card rounded-lg" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="h-24 bg-card rounded-lg" />
-            <div className="h-24 bg-card rounded-lg" />
-            <div className="h-24 bg-card rounded-lg" />
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="container py-8">
+          <div className="animate-pulse space-y-4">
+            <div className="h-32 bg-card rounded-lg" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="h-24 bg-card rounded-lg" />
+              <div className="h-24 bg-card rounded-lg" />
+              <div className="h-24 bg-card rounded-lg" />
+            </div>
           </div>
         </div>
       </div>
@@ -78,6 +82,8 @@ export function LibraryDashboard() {
   }
 
   return (
+    <div className="min-h-screen flex flex-col bg-background">
+      <SiteHeader compact />
     <div className="container py-8 space-y-8">
       {/* Header */}
       <div className="flex justify-between items-center">
@@ -313,6 +319,7 @@ export function LibraryDashboard() {
           </div>
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

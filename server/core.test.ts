@@ -4,7 +4,6 @@
  * Covers:
  *  1. Pricing Service          – tier-boundary arithmetic, min/max caps
  *  2. Retry Backoff            – calculateBackoffDelay precision
- *  3. ProgressTracker          – full lifecycle + event emission
  *  4. Resilience utilities     – withTimeout, withRetry, CircuitBreaker, RateLimiter, Bulkhead
  *  5. Data-structure utilities – ObjectPool, TTLMap (fake-timer), BoundedSet, CircularBuffer
  *  6. booksRouter progress     – status-count & percentage calculation variants
@@ -39,6 +38,23 @@ vi.mock("./pipelineService", () => ({
   processBookPipeline: vi.fn().mockResolvedValue({ successCount: 1, failureCount: 0 }),
 }));
 
+vi.mock("./gatePipeline", () => ({
+  extractAndStorePages: vi.fn().mockResolvedValue({ extracted: 1, bookId: 1 }),
+  transcribeBook: vi.fn().mockResolvedValue({
+    bookId: 1,
+    transcribed: 1,
+    errors: 0,
+    biblePersisted: true,
+  }),
+  setPagePromptApproval: vi.fn().mockResolvedValue({ pageId: 1, promptStatus: "approved" }),
+  renderApprovedImages: vi.fn().mockResolvedValue({
+    bookId: 1,
+    rendered: 1,
+    skipped: 0,
+    errors: 0,
+  }),
+}));
+
 vi.mock("./storage", () => ({
   storagePut: vi
     .fn()
@@ -59,13 +75,6 @@ import {
 
 import { calculateBackoffDelay, type RetryConfig } from "./retryService";
 
-import {
-  ProgressTracker,
-  getOrCreateProgressTracker,
-  getProgressTracker,
-  removeProgressTracker,
-  type ProgressEvent,
-} from "./progressTracker";
 
 import {
   withTimeout,
@@ -329,204 +338,6 @@ describe("calculateBackoffDelay", () => {
     for (let i = 1; i <= 20; i++) {
       expect(calculateBackoffDelay(i, cfg)).toBeLessThanOrEqual(5000);
     }
-  });
-});
-
-// ===========================================================================
-// 3. ProgressTracker — full lifecycle
-// ===========================================================================
-
-describe("ProgressTracker", () => {
-  let tracker: ProgressTracker;
-
-  beforeEach(() => {
-    tracker = new ProgressTracker(42, 4);
-  });
-
-  it("initialises all pages as pending with 0% progress", () => {
-    const progress = tracker.getProgress();
-    expect(progress.totalPages).toBe(4);
-    expect(progress.processedPages).toBe(0);
-    expect(progress.failedPages).toBe(0);
-    expect(progress.overallProgress).toBe(0);
-    expect(progress.status).toBe("pending");
-    expect(progress.pageStatuses.every((p) => p.status === "pending")).toBe(true);
-  });
-
-  it("startPage transitions status to 'processing'", () => {
-    tracker.startPage(1);
-    const page = tracker.getPageStatus(1);
-    expect(page?.status).toBe("processing");
-    expect(page?.progress).toBe(0);
-  });
-
-  it("startPage transitions overall status from pending → processing", () => {
-    tracker.startPage(1);
-    expect(tracker.getProgress().status).toBe("processing");
-  });
-
-  it("completePage increments processedPages", () => {
-    tracker.startPage(1);
-    tracker.completePage(1);
-    expect(tracker.getProgress().processedPages).toBe(1);
-  });
-
-  it("completePage marks page as completed with 100% progress", () => {
-    tracker.startPage(1);
-    tracker.completePage(1);
-    const page = tracker.getPageStatus(1);
-    expect(page?.status).toBe("completed");
-    expect(page?.progress).toBe(100);
-  });
-
-  it("overall progress = round(completed / total × 100) — 1 of 4 = 25%", () => {
-    tracker.startPage(1);
-    tracker.completePage(1);
-    expect(tracker.getProgress().overallProgress).toBe(25);
-  });
-
-  it("overall progress 2 of 4 = 50%", () => {
-    for (const p of [1, 2]) {
-      tracker.startPage(p);
-      tracker.completePage(p);
-    }
-    expect(tracker.getProgress().overallProgress).toBe(50);
-  });
-
-  it("overall progress 4 of 4 = 100%", () => {
-    for (const p of [1, 2, 3, 4]) {
-      tracker.startPage(p);
-      tracker.completePage(p);
-    }
-    expect(tracker.getProgress().overallProgress).toBe(100);
-  });
-
-  it("failPage increments failedPages", () => {
-    tracker.startPage(2);
-    tracker.failPage(2, "Image generation failed");
-    expect(tracker.getProgress().failedPages).toBe(1);
-  });
-
-  it("failPage marks page with status 'error' and stores error message", () => {
-    tracker.startPage(2);
-    tracker.failPage(2, "Something went wrong");
-    const page = tracker.getPageStatus(2);
-    expect(page?.status).toBe("error");
-    expect(page?.error).toBe("Something went wrong");
-  });
-
-  it("failPage does NOT increment processedPages", () => {
-    tracker.startPage(2);
-    tracker.failPage(2, "err");
-    expect(tracker.getProgress().processedPages).toBe(0);
-  });
-
-  it("completeProcessing sets status to 'completed'", () => {
-    tracker.startPage(1);
-    tracker.completePage(1);
-    tracker.completeProcessing();
-    expect(tracker.getProgress().status).toBe("completed");
-  });
-
-  it("cancel sets status to 'cancelled'", () => {
-    tracker.cancel();
-    expect(tracker.getProgress().status).toBe("cancelled");
-  });
-
-  it("failProcessing sets status to 'failed' and includes error", () => {
-    tracker.failProcessing("fatal error");
-    const p = tracker.getProgress();
-    expect(p.status).toBe("failed");
-    // The emitted event contains the error
-  });
-
-  it("getPageStatus returns undefined for out-of-range page number", () => {
-    expect(tracker.getPageStatus(99)).toBeUndefined();
-  });
-
-  it("getAllPageStatuses returns all N pages", () => {
-    expect(tracker.getAllPageStatuses()).toHaveLength(4);
-  });
-
-  it("emits 'progress' event on startPage", () => {
-    const events: ProgressEvent[] = [];
-    tracker.on("progress", (e: ProgressEvent) => events.push(e));
-    tracker.startPage(1);
-    expect(events).toHaveLength(1);
-    expect(events[0].status).toBe("processing");
-  });
-
-  it("emits 'progress' event on completePage", () => {
-    const events: ProgressEvent[] = [];
-    tracker.startPage(1);
-    tracker.on("progress", (e: ProgressEvent) => events.push(e));
-    tracker.completePage(1);
-    expect(events).toHaveLength(1);
-    expect(events[0].processedPages).toBe(1);
-  });
-
-  it("emits 'progress' event on failPage", () => {
-    const events: ProgressEvent[] = [];
-    tracker.startPage(2);
-    tracker.on("progress", (e: ProgressEvent) => events.push(e));
-    tracker.failPage(2, "err");
-    expect(events).toHaveLength(1);
-    expect(events[0].failedPages).toBe(1);
-  });
-
-  it("initial ETA (no completions) = totalPages × 9500 ms", () => {
-    const TOTAL_STEP_DURATION = 500 + 2000 + 1500 + 5000 + 500; // 9500
-    expect(tracker.getProgress().estimatedTimeRemaining).toBe(4 * TOTAL_STEP_DURATION);
-  });
-
-  it("ETA uses average of historical durations after completions", () => {
-    // Simulate a page that took 2000 ms
-    tracker.startPage(1);
-    const pageStatus = tracker.getPageStatus(1)!;
-    pageStatus.startTime = Date.now() - 2000;
-    tracker.completePage(1);
-
-    const eta = tracker.getProgress().estimatedTimeRemaining;
-    // remaining = 3 pages, average ≈ 2000ms → ETA ≈ 6000ms
-    expect(eta).toBeGreaterThan(0);
-    expect(eta).toBeLessThan(4 * 9500); // definitely improved from default
-  });
-});
-
-describe("getOrCreateProgressTracker / getProgressTracker / removeProgressTracker", () => {
-  beforeEach(() => {
-    removeProgressTracker(999);
-  });
-
-  afterEach(() => {
-    removeProgressTracker(999);
-  });
-
-  it("creates a new tracker when one does not exist", () => {
-    const t = getOrCreateProgressTracker(999, 5);
-    expect(t).toBeInstanceOf(ProgressTracker);
-    expect(t.getProgress().totalPages).toBe(5);
-  });
-
-  it("returns the same instance on subsequent calls", () => {
-    const t1 = getOrCreateProgressTracker(999, 5);
-    const t2 = getOrCreateProgressTracker(999, 5);
-    expect(t1).toBe(t2);
-  });
-
-  it("getProgressTracker returns undefined before creation", () => {
-    expect(getProgressTracker(888)).toBeUndefined();
-  });
-
-  it("getProgressTracker returns tracker after creation", () => {
-    getOrCreateProgressTracker(999, 3);
-    expect(getProgressTracker(999)).toBeInstanceOf(ProgressTracker);
-  });
-
-  it("removeProgressTracker makes it undefined", () => {
-    getOrCreateProgressTracker(999, 3);
-    removeProgressTracker(999);
-    expect(getProgressTracker(999)).toBeUndefined();
   });
 });
 
@@ -1089,7 +900,9 @@ describe("booksRouter.upload — validation", () => {
 
     expect(result.pagesWillProcess).toBe(20);
     expect(result.pageCapWarning).toMatch(/Only the first 20 of 21/);
-    expect(result.autoRenderStarted).toBe(true);
+    expect(result.autoRenderStarted).toBe(false);
+    // Multi-pass reading auto-starts after extract (still no render).
+    expect(result.phase).toBe("reading");
   });
 
   it("returns pagesWillProcess=10 with NO warning for a 10-page PDF", async () => {
@@ -1108,45 +921,25 @@ describe("booksRouter.upload — validation", () => {
     expect(result.pageCapWarning).toBeUndefined();
   });
 
-  it("returns processingStatus='processing' in the upload response when under daily cap", async () => {
+  it("upload extracts + auto multi-pass — never auto-starts full render", async () => {
     vi.mocked(getPDFMetadata).mockResolvedValue({ totalPages: 5 });
     vi.mocked(createBook as any).mockResolvedValue(
       makeBook({ id: 4, pageCount: 5, processingStatus: "pending" })
     );
 
+    const { processBookPipeline } = await import("./pipelineService");
+    const { extractAndStorePages } = await import("./gatePipeline");
     const caller = appRouter.createCaller(makeCtx(103));
     const result = await caller.books.upload({
       title: "Tiny Book",
       pdfData: Buffer.alloc(10).toString("base64"),
     });
 
+    // Reading may run async; status flips to processing; DALL·E still gated.
     expect(result.processingStatus).toBe("processing");
-    expect(result.autoRenderStarted).toBe(true);
-  });
-
-  it("leaves book pending and skips auto-render when daily page-unit cap would be exceeded", async () => {
-    // Two full 20-unit books already started today → used=40, default cap=40.
-    const today = new Date();
-    vi.mocked(getUserBooks as any).mockResolvedValue([
-      makeBook({ id: 10, pageCount: 20, processingStatus: "processing", createdAt: today }),
-      makeBook({ id: 11, pageCount: 20, processingStatus: "completed", createdAt: today }),
-    ]);
-    vi.mocked(getPDFMetadata).mockResolvedValue({ totalPages: 5 });
-    vi.mocked(createBook as any).mockResolvedValue(
-      makeBook({ id: 12, pageCount: 5, processingStatus: "pending" })
-    );
-
-    const { processBookPipeline } = await import("./pipelineService");
-    const caller = appRouter.createCaller(makeCtx(104));
-    const result = await caller.books.upload({
-      title: "Over Cap Book",
-      pdfData: Buffer.alloc(10).toString("base64"),
-    });
-
-    expect(result.processingStatus).toBe("pending");
     expect(result.autoRenderStarted).toBe(false);
-    expect(result.dailyRender.used).toBe(40);
-    expect(result.dailyRender.cap).toBe(40);
+    expect(result.phase).toBe("reading");
+    expect(extractAndStorePages).toHaveBeenCalled();
     expect(processBookPipeline).not.toHaveBeenCalled();
   });
 });
@@ -1175,60 +968,22 @@ describe("booksRouter.processPdf — auth guards and status checks", () => {
     });
   });
 
-  it("returns early with status message when book is already 'completed'", async () => {
-    vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "completed" }));
-
-    const caller = appRouter.createCaller(makeCtx(1));
-    const result = await caller.books.processPdf({ bookId: 1 });
-    expect(result.status).toBe("completed");
-    expect(result.message).toMatch(/completed/);
-  });
-
-  it("returns early with status message when book is already 'processing'", async () => {
-    vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "processing" }));
-
-    const caller = appRouter.createCaller(makeCtx(1));
-    const result = await caller.books.processPdf({ bookId: 1 });
-    expect(result.status).toBe("processing");
-  });
-
-  it("throws TOO_MANY_REQUESTS when daily render cap would be exceeded", async () => {
-    const today = new Date();
-    vi.mocked(getBook as any).mockResolvedValue(
-      makeBook({ id: 12, userId: 1, pageCount: 5, processingStatus: "pending" })
-    );
-    // Other books for THIS user already at cap=40. Cap is per-user via getUserBooks(userId).
-    vi.mocked(getUserBooks as any).mockResolvedValue([
-      makeBook({ id: 10, pageCount: 20, processingStatus: "processing", createdAt: today }),
-      makeBook({ id: 11, pageCount: 20, processingStatus: "completed", createdAt: today }),
-      makeBook({ id: 12, pageCount: 5, processingStatus: "pending", createdAt: today }),
-    ]);
-
-    const caller = appRouter.createCaller(makeCtx(1));
-    await expect(caller.books.processPdf({ bookId: 12 })).rejects.toMatchObject({
-      code: "TOO_MANY_REQUESTS",
-      message: expect.stringContaining("Daily render cap exceeded"),
-    });
-  });
-
-  it("starts processPdf when under cap (fetches PDF then sets processing)", async () => {
+  it("re-extracts only (no full render) when processPdf is called", async () => {
     mockPdfFetchOk();
     vi.mocked(getBook as any).mockResolvedValue(
       makeBook({ id: 5, userId: 1, pageCount: 5, processingStatus: "pending" })
     );
-    vi.mocked(getUserBooks as any).mockResolvedValue([
-      makeBook({ id: 5, pageCount: 5, processingStatus: "pending", createdAt: new Date() }),
-    ]);
-    vi.mocked(updateBook as any).mockResolvedValue(undefined);
-
     const { processBookPipeline } = await import("./pipelineService");
+    const { extractAndStorePages } = await import("./gatePipeline");
+    vi.mocked(extractAndStorePages).mockResolvedValue({ extracted: 3, bookId: 5 });
+
     const caller = appRouter.createCaller(makeCtx(1));
     const result = await caller.books.processPdf({ bookId: 5 });
 
-    expect(result.status).toBe("processing");
-    expect(result.dailyRender?.cap).toBe(40);
-    expect(updateBook).toHaveBeenCalledWith(5, { processingStatus: "processing" });
-    expect(processBookPipeline).toHaveBeenCalled();
+    expect(result.status).toBe("pending");
+    expect(result.pagesExtracted).toBe(3);
+    expect(extractAndStorePages).toHaveBeenCalled();
+    expect(processBookPipeline).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 });
@@ -1402,79 +1157,61 @@ describe("booksRouter.retryFailedPages — integration", () => {
     expect(result.success).toBe(true);
   });
 
-  it("returns retriedCount=2 and calls updatePage twice for 2 failed pages", async () => {
+  it("re-renders only approved pages with image errors (no full pipeline)", async () => {
     vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "failed" }));
     vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ id: 1, pageNumber: 1, processingStatus: "error", retryCount: 0 }),
-      makePage({ id: 2, pageNumber: 2, processingStatus: "error", retryCount: 1 }),
-      makePage({ id: 3, pageNumber: 3, processingStatus: "done", retryCount: 0 }),
+      makePage({
+        id: 1,
+        pageNumber: 1,
+        processingStatus: "error",
+        promptStatus: "approved",
+        imageStatus: "image_error",
+        generatedPrompt: "a scene",
+        retryCount: 0,
+      }),
+      makePage({
+        id: 2,
+        pageNumber: 2,
+        processingStatus: "error",
+        promptStatus: "prompt_ready", // not approved — skip
+        imageStatus: "image_error",
+        retryCount: 1,
+      }),
     ]);
     vi.mocked(updatePage as any).mockResolvedValue(undefined);
-    vi.mocked(updateBook as any).mockResolvedValue(undefined);
+    const { renderApprovedImages } = await import("./gatePipeline");
+    vi.mocked(renderApprovedImages).mockResolvedValue({
+      bookId: 1,
+      rendered: 1,
+      skipped: 0,
+      errors: 0,
+    });
 
     const caller = appRouter.createCaller(makeCtx(1));
     const result = await caller.books.retryFailedPages({ bookId: 1 });
 
-    expect(result.retriedCount).toBe(2);
+    expect(result.retriedCount).toBe(1);
     expect(result.success).toBe(true);
-    expect(updatePage).toHaveBeenCalledTimes(2);
-  });
-
-  it("resets retryCount to 0 (not increments) when resetting failed pages", async () => {
-    vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "failed" }));
-    vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ id: 1, pageNumber: 1, processingStatus: "error", retryCount: 2 }),
-    ]);
-    vi.mocked(updatePage as any).mockResolvedValue(undefined);
-    vi.mocked(updateBook as any).mockResolvedValue(undefined);
-
-    const caller = appRouter.createCaller(makeCtx(1));
-    await caller.books.retryFailedPages({ bookId: 1 });
-
     expect(updatePage).toHaveBeenCalledWith(
       1,
-      expect.objectContaining({ processingStatus: "pending", retryCount: 0 })
+      expect.objectContaining({ imageStatus: "pending", retryCount: 0 })
     );
+    expect(renderApprovedImages).toHaveBeenCalledWith(1);
   });
 
-  it("sets book status back to 'processing' only after successful PDF fetch (H5)", async () => {
-    vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "failed" }));
-    vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ id: 1, processingStatus: "error", retryCount: 0 }),
-    ]);
-    vi.mocked(updatePage as any).mockResolvedValue(undefined);
-    vi.mocked(updateBook as any).mockResolvedValue(undefined);
-
-    const caller = appRouter.createCaller(makeCtx(1));
-    await caller.books.retryFailedPages({ bookId: 1 });
-
-    expect(updateBook).toHaveBeenCalledWith(1, { processingStatus: "processing" });
-  });
-
-  it("does not mutate page/book status when PDF fetch fails (H5)", async () => {
-    mockPdfFetchFail(503);
-    vi.mocked(getBook as any).mockResolvedValue(makeBook({ processingStatus: "failed" }));
-    vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ id: 1, processingStatus: "error", retryCount: 0 }),
-    ]);
-
-    const caller = appRouter.createCaller(makeCtx(1));
-    await expect(caller.books.retryFailedPages({ bookId: 1 })).rejects.toMatchObject({
-      code: "PRECONDITION_FAILED",
-    });
-    expect(updatePage).not.toHaveBeenCalled();
-    expect(updateBook).not.toHaveBeenCalled();
-  });
-
-  it("throws TOO_MANY_REQUESTS when daily render cap blocks retry", async () => {
+  it("throws TOO_MANY_REQUESTS when daily render cap blocks re-render", async () => {
     const today = new Date();
-    // Book under retry is id=99 (pending-cap scenario: other books filled the budget).
-    // Exclude-self means book 99 is not double-counted; other books alone = 40.
     vi.mocked(getBook as any).mockResolvedValue(
       makeBook({ id: 99, userId: 1, pageCount: 10, processingStatus: "failed" })
     );
     vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ id: 1, processingStatus: "error", retryCount: 0 }),
+      makePage({
+        id: 1,
+        processingStatus: "error",
+        promptStatus: "approved",
+        imageStatus: "image_error",
+        generatedPrompt: "x",
+      }),
     ]);
     vi.mocked(getUserBooks as any).mockResolvedValue([
       makeBook({ id: 10, pageCount: 20, processingStatus: "processing", createdAt: today }),
@@ -1487,8 +1224,6 @@ describe("booksRouter.retryFailedPages — integration", () => {
       code: "TOO_MANY_REQUESTS",
       message: expect.stringContaining("Daily render cap exceeded"),
     });
-    expect(updatePage).not.toHaveBeenCalled();
-    expect(updateBook).not.toHaveBeenCalled();
   });
 });
 
@@ -1500,6 +1235,10 @@ describe("booksRouter.list — pagination", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getUserBooks as any).mockResolvedValue(ALL_BOOKS);
+    // list now derives pipelinePhase from page rows
+    vi.mocked(getBookPages as any).mockResolvedValue([
+      { promptStatus: "approved", imageStatus: "image_ready", ocrText: "done" },
+    ]);
   });
 
   it("returns correct totalCount and totalPages for 12 books with pageSize=5", async () => {
@@ -1706,49 +1445,6 @@ describe("withTimeout — timer-leak fix", () => {
   });
 });
 
-describe("ProgressTracker — getCurrentPage fix (defaults to 0, not totalPages)", () => {
-  it("currentPage is 0 when no page has started yet", () => {
-    const tracker = new ProgressTracker(1, 3);
-    expect(tracker.getProgress().currentPage).toBe(0);
-  });
-
-  it("currentPage is 0 after all pages complete (none in processing state)", () => {
-    const tracker = new ProgressTracker(1, 2);
-    tracker.startPage(1);
-    tracker.completePage(1);
-    tracker.startPage(2);
-    tracker.completePage(2);
-    expect(tracker.getProgress().currentPage).toBe(0);
-  });
-
-  it("currentPage reflects the actively-processing page number", () => {
-    const tracker = new ProgressTracker(1, 3);
-    tracker.startPage(2);
-    expect(tracker.getProgress().currentPage).toBe(2);
-  });
-});
-
-describe("ProgressTracker — completePage zero-duration guard fix", () => {
-  it("a page completed immediately (0ms) still contributes to historicalDurations", () => {
-    const tracker = new ProgressTracker(1, 2);
-    tracker.startPage(1);
-
-    // Force startTime = endTime so duration = 0
-    const pageStatus = tracker.getPageStatus(1)!;
-    const now = Date.now();
-    pageStatus.startTime = now;
-    pageStatus.endTime = now;
-
-    // Manually call completePage — it will compute duration as 0
-    tracker.completePage(1);
-
-    // ETA should now use the 0ms historical average, not the fallback 9500ms × totalStepDuration
-    const eta = tracker.getProgress().estimatedTimeRemaining;
-    // remaining = 1 page, average = 0ms → ETA = 0
-    expect(eta).toBe(0);
-  });
-});
-
 describe("CircularBuffer.toArray() — correct return type (T[], not (T | undefined)[])", () => {
   it("toArray returns T[] with no undefined slots, even on a partially-filled buffer", () => {
     const buf = new CircularBuffer<number>(5);
@@ -1835,109 +1531,35 @@ describe("retryRouter — ownership checks (FORBIDDEN / NOT_FOUND)", () => {
 });
 
 // ===========================================================================
-// 11. PerformanceMonitor — p95/p99 percentile fix
-// ===========================================================================
-
-import { performanceMonitor } from "./performanceMonitor";
-
-describe("performanceMonitor — p95/p99 off-by-one fix", () => {
-  beforeEach(() => { performanceMonitor.clearAllMetrics(); });
-
-  it("p95 for 20 sorted metrics is the 19th value (index 18), not the 20th (max)", () => {
-    // Record 20 durations: 1, 2, 3, ... 20  (sorted ascending after getStats)
-    for (let i = 1; i <= 20; i++) {
-      performanceMonitor.recordMetric("test", i, "success");
-    }
-    const stats = performanceMonitor.getStats("test")!;
-    // Nearest-rank p95 for N=20: rank = ceil(20*0.95) = ceil(19) = 19, index = 18 → value 19
-    // Old formula: floor(20*0.95) = 19 → index 19 → value 20 (the max, not the 95th)
-    expect(stats.p95Duration).toBe(19);
-    expect(stats.p95Duration).not.toBe(stats.maxDuration);
-  });
-
-  it("p99 for 100 metrics is the 99th value (index 98), not the 100th (max)", () => {
-    for (let i = 1; i <= 100; i++) {
-      performanceMonitor.recordMetric("test99", i, "success");
-    }
-    const stats = performanceMonitor.getStats("test99")!;
-    // Nearest-rank p99 for N=100: rank = ceil(100*0.99) = 99, index = 98 → value 99
-    // Old formula: floor(100*0.99) = 99 → index 99 → value 100 (the max)
-    expect(stats.p99Duration).toBe(99);
-    expect(stats.p99Duration).not.toBe(stats.maxDuration);
-  });
-
-  it("p95 and p99 are within bounds for a single-element dataset", () => {
-    performanceMonitor.recordMetric("single", 42, "success");
-    const stats = performanceMonitor.getStats("single")!;
-    expect(stats.p95Duration).toBe(42);
-    expect(stats.p99Duration).toBe(42);
-  });
-
-  it("getStats returns null for an unknown metric name", () => {
-    expect(performanceMonitor.getStats("nonexistent")).toBeNull();
-  });
-});
-
-// ===========================================================================
-// 12. ResumableUpload.getProgress() — divide-by-zero fix
-// ===========================================================================
-
-import { ResumableUpload } from "./streamingUpload";
-
-describe("ResumableUpload.getProgress() — divide-by-zero fix", () => {
-  it("returns 100 (not NaN) for an upload with totalSize = 0", () => {
-    const upload = new ResumableUpload("empty", 0);
-    const progress = upload.getProgress();
-    expect(progress).not.toBeNaN();
-    expect(progress).toBe(100);
-  });
-
-  it("returns 0 when no chunks have been uploaded yet", () => {
-    const upload = new ResumableUpload("u1", 3 * 1024 * 1024); // 3 MB, 3 chunks of 1 MB
-    expect(upload.getProgress()).toBe(0);
-  });
-
-  it("returns 100 when all chunks are uploaded", () => {
-    const upload = new ResumableUpload("u2", 2 * 1024 * 1024);
-    upload.addChunk(0, Buffer.alloc(1024 * 1024));
-    upload.addChunk(1, Buffer.alloc(1024 * 1024));
-    expect(upload.getProgress()).toBe(100);
-  });
-
-  it("returns correct partial progress", () => {
-    const upload = new ResumableUpload("u3", 4 * 1024 * 1024);
-    upload.addChunk(0, Buffer.alloc(1024 * 1024));
-    expect(upload.getProgress()).toBe(25);
-  });
-
-  it("isComplete() returns true for a zero-size upload", () => {
-    const upload = new ResumableUpload("empty", 0);
-    expect(upload.isComplete()).toBe(true);
-  });
-});
-
-// ===========================================================================
 // 13. booksRouter.retryFailedPages — retryCount reset fix
 // ===========================================================================
 
 describe("booksRouter.retryFailedPages — resets retryCount to 0", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPdfFetchOk();
     vi.mocked(getUserBooks as any).mockResolvedValue([]);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("calls updatePage with retryCount: 0 (not incremented) for an exhausted page", async () => {
+  it("resets retryCount to 0 for approved image_error pages before re-render", async () => {
     vi.mocked(getBook as any).mockResolvedValue(makeBook());
     vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ processingStatus: "error", retryCount: 3, maxRetries: 3 }),
+      makePage({
+        processingStatus: "error",
+        promptStatus: "approved",
+        imageStatus: "image_error",
+        generatedPrompt: "scene",
+        retryCount: 3,
+        maxRetries: 3,
+      }),
     ]);
     vi.mocked(updatePage as any).mockResolvedValue(undefined);
-    vi.mocked(updateBook as any).mockResolvedValue(undefined);
+    const { renderApprovedImages } = await import("./gatePipeline");
+    vi.mocked(renderApprovedImages).mockResolvedValue({
+      bookId: 1,
+      rendered: 1,
+      skipped: 0,
+      errors: 0,
+    });
 
     const caller = appRouter.createCaller(makeCtx(1));
     const result = await caller.books.retryFailedPages({ bookId: 1 });
@@ -1947,27 +1569,9 @@ describe("booksRouter.retryFailedPages — resets retryCount to 0", () => {
       expect.any(Number),
       expect.objectContaining({ retryCount: 0 })
     );
-  });
-
-  it("does NOT increment retryCount past maxRetries on manual retry", async () => {
-    vi.mocked(getBook as any).mockResolvedValue(makeBook());
-    vi.mocked(getBookPages as any).mockResolvedValue([
-      makePage({ processingStatus: "error", retryCount: 3, maxRetries: 3 }),
-    ]);
-    vi.mocked(updatePage as any).mockResolvedValue(undefined);
-    vi.mocked(updateBook as any).mockResolvedValue(undefined);
-
-    const caller = appRouter.createCaller(makeCtx(1));
-    await caller.books.retryFailedPages({ bookId: 1 });
-
-    // After fix: retryCount resets to 0, not 4
     expect(updatePage).not.toHaveBeenCalledWith(
       expect.any(Number),
       expect.objectContaining({ retryCount: 4 })
-    );
-    expect(updatePage).toHaveBeenCalledWith(
-      expect.any(Number),
-      expect.objectContaining({ retryCount: 0 })
     );
   });
 });

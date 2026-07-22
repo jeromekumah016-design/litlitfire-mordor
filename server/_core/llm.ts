@@ -350,6 +350,72 @@ function buildOfflineLLMResult(params: InvokeParams): InvokeResult {
     case "scene_plan":
       payload = { scenes: [] };
       break;
+    case "book_genres": {
+      const lower = userText.toLowerCase();
+      const genres: string[] = [];
+      if (/poem|verse|stanza/.test(lower)) genres.push("poetry");
+      if (/chapter|once upon|said |novel|story|captain|riverside/.test(lower)) {
+        genres.push("narrative fiction");
+      }
+      if (/history|according to|study|research/.test(lower)) genres.push("nonfiction");
+      if (genres.length === 0) genres.push("literary narrative");
+      payload = {
+        genres,
+        confidence: "low",
+        notes: "Offline genre discovery (no LLM).",
+      };
+      break;
+    }
+    case "plot_map": {
+      const re = /---\s*Page\s+(\d+)\s*---/gi;
+      const units: Array<{
+        unitIndex: number;
+        sourcePageFrom: number;
+        sourcePageTo: number;
+        role: string;
+        title: string;
+        rationale: string;
+      }> = [];
+      const matches: RegExpExecArray[] = [];
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(userText)) !== null) matches.push(m);
+      if (matches.length === 0) {
+        const meaningful = userText.trim().length > 40;
+        units.push({
+          unitIndex: 0,
+          sourcePageFrom: 1,
+          sourcePageTo: 1,
+          role: meaningful ? "main" : "skip",
+          title: meaningful ? "Opening" : "Empty",
+          rationale: meaningful
+            ? "Offline: single main plot unit"
+            : "Offline: insufficient text",
+        });
+      } else {
+        for (let i = 0; i < matches.length; i++) {
+          const pageNum = parseInt(matches[i][1], 10) || i + 1;
+          const start = matches[i].index! + matches[i][0].length;
+          const end = i + 1 < matches.length ? matches[i + 1].index! : userText.length;
+          const body = userText.slice(start, end).trim();
+          const main = body.length > 40;
+          units.push({
+            unitIndex: i,
+            sourcePageFrom: pageNum,
+            sourcePageTo: pageNum,
+            role: main ? "main" : "skip",
+            title: main ? `Plot beat p.${pageNum}` : `Skip p.${pageNum}`,
+            rationale: main
+              ? "Offline: page has enough narrative text"
+              : "Offline: front matter / empty / non-plot",
+          });
+        }
+      }
+      payload = {
+        authorIntent: "Offline: convey the narrative through key illustrated moments.",
+        plotUnits: units,
+      };
+      break;
+    }
     default:
       payload = {};
   }

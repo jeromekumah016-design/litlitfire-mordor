@@ -1,11 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Logo } from "@/components/Logo";
+import { SiteHeader } from "@/components/SiteHeader";
 import { Loader2, BookOpen, Wand2, Image } from "lucide-react";
 import { getLoginUrl } from "@/const";
 
 export default function Home() {
-  const { user, loading, isAuthenticated } = useAuth();
+  const { loading, isAuthenticated } = useAuth();
 
   if (loading) {
     return (
@@ -40,22 +40,7 @@ export default function Home() {
         <div className="ambient-light ambient-light-cool" style={{ width: '140px', height: '140px', bottom: '20%', right: '20%', animationDelay: '3s' }} />
       </div>
 
-      {/* Header with Logo */}
-      <header className="relative z-10 border-b border-accent/20 bg-background/50 backdrop-blur-md">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Logo size="md" />
-            <h1 className="text-2xl literary-heading glow-text">
-              LiteratureAI
-            </h1>
-          </div>
-          {isAuthenticated && (
-            <div className="text-sm text-accent/80">
-              Welcome, {user?.name || "Traveler"}
-            </div>
-          )}
-        </div>
-      </header>
+      <SiteHeader />
 
       {/* Main Content */}
       <main className="flex-1 container mx-auto px-4 py-12 md:py-20 relative z-10">
@@ -136,7 +121,8 @@ export default function Home() {
                     size="lg"
                     className="btn-glow bg-gradient-to-r from-accent to-orange-400 hover:from-accent/90 hover:to-orange-400/90 text-background font-bold px-8 py-6 text-lg rounded-lg transition-all"
                   >
-                    <a href="/books">Enter the Library</a>
+                    {/* Must sign in first — books.upload is protectedProcedure */}
+                    <a href={getLoginUrl("/books")}>Sign in &amp; Enter Library</a>
                   </Button>
                 )}
               </div>

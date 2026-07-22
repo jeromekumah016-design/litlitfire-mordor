@@ -11,15 +11,61 @@ function getRedirectUri(req: Request): string {
   return `${proto}://${host}/api/oauth/callback`;
 }
 
+/** Stable openId for no-Google local/offline login. */
+export const DEMO_OPEN_ID = "demo_offline_user";
+
+/**
+ * Mint a real app session for the demo user (upsert + JWT on COOKIE_NAME).
+ * Used when GOOGLE_CLIENT_ID is unset so local offline mode is fully functional.
+ */
+export async function establishDemoSession(req: Request, res: Response): Promise<void> {
+  if (!ENV.cookieSecret || ENV.cookieSecret.length < 16) {
+    throw new Error(
+      "JWT_SECRET must be set (min 16 chars) for demo login — see .env.example"
+    );
+  }
+  await db.upsertUser({
+    openId: DEMO_OPEN_ID,
+    name: "Demo User",
+    email: "demo@local.dev",
+    loginMethod: "demo",
+    lastSignedIn: new Date(),
+  });
+  const user = await db.getUserByOpenId(DEMO_OPEN_ID);
+  if (!user) {
+    throw new Error(
+      "Demo user could not be persisted — is DATABASE_URL set and reachable?"
+    );
+  }
+  const sessionToken = await sdk.createSessionToken(DEMO_OPEN_ID, {
+    name: "Demo User",
+    expiresInMs: ONE_YEAR_MS,
+  });
+  const cookieOptions = getSessionCookieOptions(req);
+  res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+}
+
 export function registerOAuthRoutes(app: Express) {
-  // Redirect to Google OAuth consent screen
-  app.get("/api/auth/google", (req: Request, res: Response) => {
-    // Bypass OAuth - create a demo session
+  // Redirect to Google OAuth consent screen — or demo login when Google is not configured
+  app.get("/api/auth/google", async (req: Request, res: Response) => {
+    // Optional post-login path (must be same-origin relative)
+    const rawNext = typeof req.query.next === "string" ? req.query.next : "/";
+    const nextPath =
+      rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+
     if (!ENV.googleClientId) {
-      // Create a demo user session
-      const sessionId = "demo-session-" + Date.now();
-      res.cookie("session", sessionId, { httpOnly: true, secure: true, sameSite: "lax" });
-      res.redirect("/");
+      try {
+        await establishDemoSession(req, res);
+        res.redirect(302, nextPath);
+      } catch (err) {
+        console.error("[OAuth] Demo login failed:", err);
+        res.status(500).json({
+          error:
+            err instanceof Error
+              ? err.message
+              : "Demo login failed (need DATABASE_URL + JWT_SECRET)",
+        });
+      }
       return;
     }
     const redirectUri = getRedirectUri(req);

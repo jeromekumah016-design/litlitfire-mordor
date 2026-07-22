@@ -6,7 +6,11 @@
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>LiteralLiterature</title>
+    <title>LiteralLiterature — PDF books to visual stories</title>
+    <meta
+      name="description"
+      content="Upload PDF books, read by chapter (Lite package), approve prompts, and generate AI illustrations. Per-page density is the upgraded package." />
+    <meta name="theme-color" content="#0f0f0f" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,10 +20,7 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <!-- Analytics: only inject when VITE_ANALYTICS_* are set in build (avoid broken %VITE_*% URLs). -->
   </body>
 
 </html>

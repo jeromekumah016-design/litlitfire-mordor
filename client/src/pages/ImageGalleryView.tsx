@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import ImageGalleryVirtualized from "@/components/ImageGalleryVirtualized";
+import { SiteHeader } from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, RotateCcw, BookMarked, Sparkles } from "lucide-react";
 
@@ -43,10 +44,13 @@ export default function ImageGalleryView() {
 
   if (bookDetailsQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto" />
-          <p className="text-muted-foreground">Unveiling your visual story...</p>
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-center space-y-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto" />
+            <p className="text-muted-foreground">Unveiling your visual story...</p>
+          </div>
         </div>
       </div>
     );
@@ -54,13 +58,21 @@ export default function ImageGalleryView() {
 
   if (bookDetailsQuery.isError || !bookDetailsQuery.data) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center space-y-4">
-          <p className="text-red-500">Failed to load gallery</p>
-          <Button onClick={() => setLocation("/books")} variant="outline">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Library
-          </Button>
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-center space-y-4">
+            <p className="text-red-500">Failed to load gallery</p>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => setLocation("/")} variant="outline">
+                Home
+              </Button>
+              <Button onClick={() => setLocation("/books")} variant="outline">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Library
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -68,37 +80,78 @@ export default function ImageGalleryView() {
 
   const book = bookDetailsQuery.data as any;
   const failedPages = book.pages.filter((page: any) => page.processingStatus === "error");
+  const isLite = (book.packageTier || "lite") !== "upgraded";
   const generatedImages = book.pages
     .filter((page: any) => !!page.generatedImageUrl)
-    .map((page: any) => ({
-      id: String(page.id),
-      pageNumber: page.pageNumber,
-      url: page.generatedImageUrl as string,
-      title: (page.sceneTitle as string | undefined) || `Page ${page.pageNumber}`,
-      subtitle: page.sourcePage
-        ? `Scene ${page.pageNumber} • from page ${page.sourcePage}`
-        : undefined,
-    }));
+    .map((page: any) => {
+      const structured = page.promptStructured as
+        | {
+            chapterTitle?: string;
+            chapterIndex?: number;
+            sourcePages?: number[];
+            packageTier?: string;
+            unitTitle?: string;
+          }
+        | null
+        | undefined;
+      const chapterTitle =
+        structured?.chapterTitle ||
+        structured?.unitTitle ||
+        (page.sceneTitle as string | undefined);
+      const range =
+        structured?.sourcePages && structured.sourcePages.length >= 2
+          ? structured.sourcePages
+          : null;
+      const title = chapterTitle
+        ? structured?.chapterIndex != null
+          ? `${chapterTitle}`
+          : chapterTitle
+        : `Page ${page.pageNumber}`;
+      const subtitle = chapterTitle
+        ? range
+          ? `Lite · chapter pages ${range[0]}–${range[1]}`
+          : isLite
+            ? `Lite · chapter · anchor p.${page.pageNumber}`
+            : `Page ${page.pageNumber}`
+        : page.sourcePage
+          ? `Scene ${page.pageNumber} • from page ${page.sourcePage}`
+          : undefined;
+      return {
+        id: String(page.id),
+        pageNumber: page.pageNumber,
+        url: page.generatedImageUrl as string,
+        title,
+        subtitle,
+      };
+    });
 
   if (generatedImages.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center space-y-6 max-w-md">
-          <div className="flex justify-center">
-            <BookMarked className="w-16 h-16 text-accent/50" />
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteHeader compact />
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-center space-y-6 max-w-md">
+            <div className="flex justify-center">
+              <BookMarked className="w-16 h-16 text-accent/50" />
+            </div>
+            <div>
+              <p className="text-lg text-muted-foreground mb-2">
+                No generated images yet
+              </p>
+              <p className="text-sm text-foreground/60">
+                Approve chapters and run Stage 2 generate, then return here.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => setLocation("/")} variant="outline">
+                Home
+              </Button>
+              <Button onClick={() => setLocation("/books")} variant="outline">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Library
+              </Button>
+            </div>
           </div>
-          <div>
-            <p className="text-lg text-muted-foreground mb-2">
-              No generated images yet
-            </p>
-            <p className="text-sm text-foreground/60">
-              Processing in progress... Check back soon to see your visual story unfold.
-            </p>
-          </div>
-          <Button onClick={() => setLocation("/books")} variant="outline">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Library
-          </Button>
         </div>
       </div>
     );
@@ -106,6 +159,7 @@ export default function ImageGalleryView() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      <SiteHeader compact />
       {/* Ambient background effects */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="ambient-light ambient-light-warm" style={{ width: '200px', height: '200px', top: '10%', left: '5%', animationDelay: '0s' }} />
@@ -121,6 +175,7 @@ export default function ImageGalleryView() {
               size="icon"
               onClick={() => setLocation("/books")}
               className="hover:bg-accent/10"
+              title="Back to Library"
             >
               <ArrowLeft className="w-4 h-4" />
             </Button>
@@ -132,7 +187,13 @@ export default function ImageGalleryView() {
                 </h1>
               </div>
               <p className="text-sm text-accent/70">
-                {generatedImages.length} of {(book as any).pageCount} pages transformed into visual art
+                {isLite
+                  ? `${generatedImages.length} chapter illustration${generatedImages.length !== 1 ? "s" : ""} (Lite package)${
+                      book.chapterCount
+                        ? ` · ${book.chapterCount} chapters detected`
+                        : ""
+                    } · ${book.pageCount} source pages`
+                  : `${generatedImages.length} of ${book.pageCount} pages transformed into visual art`}
               </p>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   calculatePrice,
+  calculateLiteDisplayPrice,
   getPricingBreakdown,
   validatePricingConfig,
   DEFAULT_PRICING_CONFIG,
@@ -8,6 +9,19 @@ import {
 } from "./pricingService";
 
 describe("pricingService", () => {
+  describe("calculateLiteDisplayPrice", () => {
+    it("prices by chapter image units, not raw page count", () => {
+      const lite = calculateLiteDisplayPrice(3);
+      const byPages = calculatePrice(100);
+      expect(lite).toBe(calculatePrice(3));
+      expect(lite).toBeLessThan(byPages);
+    });
+
+    it("uses at least one unit", () => {
+      expect(calculateLiteDisplayPrice(0)).toBe(calculatePrice(1));
+    });
+  });
+
   describe("calculatePrice", () => {
     it("should calculate price for single page", () => {
       const price = calculatePrice(1);

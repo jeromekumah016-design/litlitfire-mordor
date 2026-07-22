@@ -105,6 +105,13 @@ export async function getBookPages(bookId: number): Promise<Page[]> {
   return db.select().from(pages).where(eq(pages.bookId, bookId)).orderBy(pages.pageNumber);
 }
 
+export async function getPage(pageId: number): Promise<Page | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(pages).where(eq(pages.id, pageId)).limit(1);
+  return result[0] ?? null;
+}
+
 export async function updatePage(pageId: number, updates: Partial<Page>): Promise<void> {
   const db = await getDb();
   if (!db) return;

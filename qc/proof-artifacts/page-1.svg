@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3038a6"/>
+      <stop offset="1" stop-color="#30a69a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <rect x="24" y="24" width="976" height="976" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="3" stroke-dasharray="14 10"/>
+  <text font-family="Georgia, serif" font-size="40" fill="#ffffff" text-anchor="middle" style="font-weight:600"><tspan x="50%" y="377">[offline] Illustration of:</tspan><tspan x="50%" y="431">Generate the image prompt for this</tspan><tspan x="50%" y="485">page. Page number: 1 Page text:</tspan><tspan x="50%" y="539">&quot;Chapter One. In a quiet riverside</tspan><tspan x="50%" y="593">town, young Mara watched the</tspan><tspan x="50%" y="647">morning mist rise over the oa</tspan></text>
+  <text x="50%" y="968" font-family="monospace" font-size="22" fill="rgba(255,255,255,0.85)" text-anchor="middle">OFFLINE PLACEHOLDER - no API spend</text>
+</svg>

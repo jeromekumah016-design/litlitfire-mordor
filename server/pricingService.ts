@@ -66,6 +66,19 @@ export function calculatePrice(pageCount: number, config: PricingConfig = DEFAUL
 }
 
 /**
+ * Lite package display price: charge for illustration units (chapters),
+ * not raw PDF page count. Reuses the same tier table with unit count as input.
+ * Display / framing only until billing exists.
+ */
+export function calculateLiteDisplayPrice(
+  mainChapterCount: number,
+  config: PricingConfig = DEFAULT_PRICING_CONFIG
+): number {
+  const units = Math.max(1, Math.floor(mainChapterCount) || 1);
+  return calculatePrice(units, config);
+}
+
+/**
  * Get pricing breakdown for display
  */
 export function getPricingBreakdown(
