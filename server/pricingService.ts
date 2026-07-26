@@ -27,35 +27,60 @@ export const DEFAULT_PRICING_CONFIG: PricingConfig = {
 };
 
 /**
- * Calculate the price for processing a PDF based on page count
+ * Marginal (bracket) tiered subtotal, unclamped, un-rounded.
+ *
+ * Bug fixed 2026-07-25 (audit finding H4): the previous implementation
+ * multiplied the ENTIRE page count by whichever single tier's rate matched,
+ * so crossing a tier threshold could make a LARGER book cost LESS (e.g. 50
+ * pages @ $0.40/pg flat = $20.00, but 49 pages @ $0.50/pg flat = $24.50 --
+ * one more page, $4.50 cheaper). Standard marginal/bracket pricing instead
+ * charges each page at the rate for ITS OWN bracket only (like progressive
+ * tax brackets), which is monotonically non-decreasing in page count by
+ * construction as long as rates decrease with threshold (the only shape
+ * this pricing model uses).
+ */
+function computeTieredSubtotal(pageCount: number, config: PricingConfig): number {
+  if (!config.tieredPricing || config.tieredPricing.length === 0) {
+    return pageCount * config.basePrice;
+  }
+
+  // Sort by threshold ascending so we can walk brackets low -> high.
+  const sortedTiers = [...config.tieredPricing].sort((a, b) => a.threshold - b.threshold);
+
+  let subtotal = 0;
+  let matchedAnyTier = false;
+  for (let i = 0; i < sortedTiers.length; i++) {
+    const tier = sortedTiers[i];
+    if (pageCount < tier.threshold) break;
+    matchedAnyTier = true;
+
+    const nextThreshold = sortedTiers[i + 1]?.threshold;
+    const bracketEnd = nextThreshold !== undefined ? Math.min(pageCount, nextThreshold - 1) : pageCount;
+    const pagesInBracket = bracketEnd - tier.threshold + 1;
+    if (pagesInBracket > 0) {
+      subtotal += pagesInBracket * tier.pricePerPage;
+    }
+  }
+
+  // Fallback to base price if page count is below every tier's threshold
+  // (e.g. a config whose lowest threshold is > 1).
+  if (!matchedAnyTier) {
+    subtotal = pageCount * config.basePrice;
+  }
+
+  return subtotal;
+}
+
+/**
+ * Calculate the price for processing a PDF based on page count.
+ * Uses marginal/bracket tiered pricing -- see computeTieredSubtotal.
  */
 export function calculatePrice(pageCount: number, config: PricingConfig = DEFAULT_PRICING_CONFIG): number {
   if (pageCount <= 0) {
     throw new Error("Page count must be greater than 0");
   }
 
-  let price = 0;
-
-  // Apply tiered pricing if configured
-  if (config.tieredPricing && config.tieredPricing.length > 0) {
-    // Sort by threshold descending to find the applicable tier
-    const sortedTiers = [...config.tieredPricing].sort((a, b) => b.threshold - a.threshold);
-
-    for (const tier of sortedTiers) {
-      if (pageCount >= tier.threshold) {
-        price = pageCount * tier.pricePerPage;
-        break;
-      }
-    }
-
-    // Fallback to base price if no tier matched
-    if (price === 0) {
-      price = pageCount * config.basePrice;
-    }
-  } else {
-    // Simple linear pricing
-    price = pageCount * config.basePrice;
-  }
+  let price = computeTieredSubtotal(pageCount, config);
 
   // Apply minimum and maximum constraints
   price = Math.max(price, config.minPrice);
@@ -95,7 +120,10 @@ export function getPricingBreakdown(
   let pricePerPage = config.basePrice;
   let tier = "standard";
 
-  // Find applicable tier
+  // Find the marginal tier this page count has reached (informational --
+  // "you are now paying $X/page for pages beyond N"). The actual subtotal
+  // is the full bracket-by-bracket sum below, not pageCount * pricePerPage,
+  // since earlier pages were charged at earlier (higher) tier rates.
   if (config.tieredPricing && config.tieredPricing.length > 0) {
     const sortedTiers = [...config.tieredPricing].sort((a, b) => b.threshold - a.threshold);
     for (const t of sortedTiers) {
@@ -107,7 +135,8 @@ export function getPricingBreakdown(
     }
   }
 
-  const subtotal = pageCount * pricePerPage;
+  // Pre-cap marginal subtotal (total below is this, clamped to min/max + rounded).
+  const subtotal = Math.round(computeTieredSubtotal(pageCount, config) * 100) / 100;
 
   return {
     pageCount,

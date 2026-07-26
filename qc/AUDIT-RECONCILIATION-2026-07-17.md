@@ -1,5 +1,74 @@
 # Audit Reconciliation — 2026-07-17
 
+> **STATUS UPDATE (2026-07-25): this document is almost entirely resolved and
+> was stale for two full sessions (07-23, 07-24) before anyone re-checked it
+> against the commit log.** A large session on 2026-07-21 (commits
+> `0a54193`..`341f894`, see `qc/PORT-PLAN-prompt-transcription-gate.md`)
+> shipped nearly everything below in one branch (`feat/prompt-transcription-gate`,
+> merged): the P1 two-phase architecture (`gatePipeline.ts`, `readingPipeline.ts`,
+> `books.storyBible` jsonb + `pages.promptStatus`/`imageStatus` enums in
+> `drizzle/schema.ts`), P0 items 1-4, and most of P2 (dead-module deletion,
+> `@aws-sdk/*`/`mysql2` removal, deduped `extractCharacters`). The 07-23/07-24
+> sessions were pure environment-recovery (node_modules corruption) and did not
+> re-audit this file against the new code, so their "still needs Jerome" notes
+> about scene-mode being orphaned are correct but everything else in this
+> document's "Confirmed still open" and "Decisions Jerome owns" sections below
+> is now **out of date**. Verified directly against the current tree
+> (2026-07-25), item by item:
+>
+> - **P0 1-4: ALL DONE.** `retryWorker.ts` defaults off at boot
+>   (`RETRY_WORKER_ENABLED=true` required, `_core/index.ts:71`) and, when
+>   enabled, only calls `reRenderApprovedPage` (never regenerates a prompt).
+>   `checkUserDailyRenderCap`/`dailyRenderCapError` gate `retryFailedPages` and
+>   `renderApprovedImages` (`booksRouter.ts:553,727`) — the actual DALL·E-cost
+>   boundary. `processPdf` fetches the PDF successfully before doing anything
+>   (`booksRouter.ts:283-294`) — no premature "processing" flip (H5 fixed).
+>   `generateImagePrompt` throws `EmptyPageError` instead of a renderable
+>   placeholder (closed 07-20, still true).
+> - **P1: DONE**, in the shape `gatePipeline.ts`'s own header describes:
+>   `books.storyBible` is a persisted jsonb column (`schema.ts:75`);
+>   `pages.promptStatus`/`imageStatus` are real enum columns with indexes
+>   (`schema.ts:105-106,120-121`); `extractAndStorePages` → `transcribeBook`
+>   (builds+persists the bible once, via `readingPipeline.ts`) →
+>   `setPagePromptApproval` (human gate) → `renderApprovedImages` /
+>   `reRenderApprovedPage` (DALL·E only, from the persisted prompt, never
+>   rebuilds the bible) is a real, wired, tested two-phase pipeline — not the
+>   audit's ephemeral-bible model this section originally described.
+> - **P2: mostly done.** Dead-module cluster deleted (`connectionPool.ts`,
+>   `dbOptimizationHelpers.ts`, `dbOptimized.ts`, `memoryOptimization.ts`,
+>   `dbPerformanceWrapper.ts`, `trpcMiddleware.ts`, `metricsRouter.ts`,
+>   `progressRouter.ts`, `progressTracker.ts`, `streamingUpload.ts` all
+>   confirmed absent from `server/`); `@aws-sdk/*` and `mysql2` confirmed gone
+>   from `package.json`; `extractCharacters` confirmed to exist in exactly one
+>   place now (`promptService.ts:592`). **Pricing marginal-tier fix (H4) closed
+>   2026-07-25** — see `sprint-log.md`. **NOT yet done:** unique index on
+>   `pages(bookId, pageNumber)` — confirmed still a plain composite index
+>   (`pages_bookPage_idx`, `schema.ts:122`), not a unique constraint. Lower risk
+>   than the audit originally found (the 07-21 session's `gatePipeline.ts` path
+>   upserts via `getBookPages`+`updatePage` when a page already exists,
+>   `gatePipeline.ts:72-92`, so normal re-extraction is safe), but nothing at
+>   the DB layer would stop a genuine duplicate row if two concurrent
+>   `extractAndStorePages` calls raced for the same `(bookId, pageNumber)` —
+>   a migration to make it unique is still a reasonable small hardening item,
+>   not done this session (schema migration, out of scope for a same-session
+>   drop-in fix).
+> - **Genuinely still open, confirmed real:** the scene-mode orphaning the
+>   07-24 sessions found (`pipelineService.ts`'s `processBookPipelineScenes`
+>   has zero callers now that `gatePipeline.ts` handles the live upload →
+>   render path; `ENV.sceneModeEnabled` gates dead code) — this is the one
+>   accurate carry-over finding from 07-24 and is still the right next
+>   *architecture* decision for Jerome (port scene-planning into the gate
+>   pipeline, or delete the scene-mode code path — **NEEDS JEROME**, forks
+>   scope/schema, not something an autonomous session should decide). Real
+>   server-side OCR for scanned pages (no working path today — `canvas`
+>   dependency decision, **NEEDS JEROME**, flagged since 07-18) is also still
+>   genuinely open.
+>
+> Recommendation for future sessions: treat everything below this line as a
+> historical snapshot of the 07-17 audit, not current status. Check
+> `git log --oneline` for `feat/prompt-transcription-gate`-era commits
+> (2026-07-21) before re-deriving any finding from this file.
+
 **Audit target:** `main` @ `873a2cb` (June 19, Manus "hybrid storage workaround" checkpoint).
 **Reconciled against:** `overnight/2026-07-04` @ `d3d388f` (July 17, tip of the autonomous-sprint line).
 **Divergence:** merge-base is `3c70234` (June 5). origin/main = base + exactly 1 commit (873a2cb). This branch = base + 24 commits. Zero overlap. The audit saw none of the sprint line's work; the sprint line never saw 873a2cb.

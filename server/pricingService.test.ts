@@ -72,7 +72,7 @@ describe("pricingService", () => {
       expect(price).toBe(5.0); // Should apply minimum
     });
 
-    it("should apply tiered pricing from config", () => {
+    it("should apply marginal (bracket) tiered pricing from config", () => {
       const tieredConfig: PricingConfig = {
         basePrice: 1.0,
         minPrice: 1.0,
@@ -88,9 +88,32 @@ describe("pricingService", () => {
       const price10 = calculatePrice(15, tieredConfig);
       const price50 = calculatePrice(100, tieredConfig);
 
-      expect(price1).toBe(5.0); // 5 * 1.0
-      expect(price10).toBe(12.0); // 15 * 0.8
-      expect(price50).toBe(50.0); // 100 * 0.5
+      // 5 pages, all within the first bracket (1-9): 5 * 1.0
+      expect(price1).toBe(5.0);
+      // 15 pages: 9 @ 1.0 (bracket 1-9) + 6 @ 0.8 (bracket 10-49) = 9 + 4.8
+      expect(price10).toBe(13.8);
+      // 100 pages: 9 @ 1.0 + 40 @ 0.8 (bracket 10-49) + 51 @ 0.5 (bracket 50+) = 9 + 32 + 25.5
+      expect(price50).toBe(66.5);
+    });
+
+    it("regression (H4): price must never decrease when page count increases across a tier boundary", () => {
+      // Previously, whole-count-times-single-tier-rate pricing meant 50 pages
+      // ($20.00 flat @ 0.4/pg) cost LESS than 49 pages ($24.50 flat @ 0.5/pg).
+      // Marginal/bracket pricing must be monotonically non-decreasing for any
+      // config whose per-page rate decreases at higher thresholds (the only
+      // shape this app uses).
+      for (let n = 1; n < 120; n++) {
+        expect(calculatePrice(n + 1)).toBeGreaterThanOrEqual(calculatePrice(n));
+      }
+    });
+
+    it("prices exactly at and around the default 50/100 tier boundaries without a cliff", () => {
+      expect(calculatePrice(49)).toBe(24.5); // 49 * 0.5, all in bracket 1-49
+      expect(calculatePrice(50)).toBe(24.9); // 24.5 + 1 * 0.4
+      expect(calculatePrice(51)).toBe(25.3); // 24.5 + 2 * 0.4
+      expect(calculatePrice(99)).toBe(44.5); // 24.5 + 50 * 0.4
+      expect(calculatePrice(100)).toBe(44.8); // 44.5 + 1 * 0.3
+      expect(calculatePrice(101)).toBe(45.1); // 44.5 + 2 * 0.3
     });
   });
 

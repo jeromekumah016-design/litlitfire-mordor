@@ -177,54 +177,51 @@ describe("pricingService — tier boundaries", () => {
     expect(calculatePrice(5)).toBe(2.5);
   });
 
-  it("49 pages: 49 × $0.50 = $24.50 (still in tier-1)", () => {
+  it("49 pages: 49 × $0.50 = $24.50 (last page fully in bracket 1-49)", () => {
     expect(calculatePrice(49)).toBe(24.5);
   });
 
-  it("50 pages: 50 × $0.40 = $20.00 (volume discount kicks in at tier-2)", () => {
-    // The price actually DROPS at the tier boundary — this is correct behaviour.
-    expect(calculatePrice(50)).toBe(20.0);
+  // Fixed 2026-07-25 (audit finding H4): pricing used to multiply the WHOLE
+  // page count by whichever single tier's rate matched, so crossing a tier
+  // boundary made the price DROP (50 pages was $20.00 flat vs 49 pages at
+  // $24.50 flat -- cheaper to buy MORE pages, a real revenue/trust bug, not
+  // a "volume discount"). Pricing is now marginal/bracket-based: only the
+  // pages inside a given bracket are billed at that bracket's rate, like a
+  // tax bracket. See pricingService.ts computeTieredSubtotal.
+  it("50 pages: 49 @ $0.50 (bracket 1-49) + 1 @ $0.40 (bracket 50-99) = $24.90", () => {
+    expect(calculatePrice(50)).toBe(24.9);
   });
 
-  it("tier-2 discount means price(50) < price(49)", () => {
-    expect(calculatePrice(50)).toBeLessThan(calculatePrice(49));
+  it("price never drops when crossing the tier-2 boundary: price(50) >= price(49)", () => {
+    expect(calculatePrice(50)).toBeGreaterThanOrEqual(calculatePrice(49));
   });
 
-  it("51 pages: 51 × $0.40 = $20.40", () => {
-    expect(calculatePrice(51)).toBe(20.4);
+  it("51 pages: 24.5 + 2 @ $0.40 = $25.30", () => {
+    expect(calculatePrice(51)).toBe(25.3);
   });
 
-  it("99 pages: 99 × $0.40 = $39.60 (last page of tier-2)", () => {
-    expect(calculatePrice(99)).toBe(39.6);
+  it("99 pages: 24.5 + 50 @ $0.40 (all of bracket 50-99) = $44.50", () => {
+    expect(calculatePrice(99)).toBe(44.5);
   });
 
-  it("100 pages: 100 × $0.30 = $30.00 (volume discount at tier-3)", () => {
-    expect(calculatePrice(100)).toBe(30.0);
+  it("100 pages: 44.5 + 1 @ $0.30 (bracket 100+) = $44.80", () => {
+    expect(calculatePrice(100)).toBe(44.8);
   });
 
-  it("tier-3 discount means price(100) < price(99)", () => {
-    expect(calculatePrice(100)).toBeLessThan(calculatePrice(99));
+  it("price never drops when crossing the tier-3 boundary: price(100) >= price(99)", () => {
+    expect(calculatePrice(100)).toBeGreaterThanOrEqual(calculatePrice(99));
   });
 
-  it("101 pages: 101 × $0.30 = $30.30", () => {
-    expect(calculatePrice(101)).toBe(30.3);
+  it("101 pages: 44.5 + 2 @ $0.30 = $45.10", () => {
+    expect(calculatePrice(101)).toBe(45.1);
   });
 
-  it("1667 pages hits the $500 maximum cap (1667 × $0.30 = $500.10 → capped)", () => {
+  it("1667 pages hits the $500 maximum cap (raw marginal subtotal $514.90 → capped)", () => {
     expect(calculatePrice(1667)).toBe(500.0);
   });
 
-  it("price is monotonically non-decreasing within each tier", () => {
-    // tier 1 (1-49): pages 5 to 49
-    for (let p = 5; p < 49; p++) {
-      expect(calculatePrice(p)).toBeLessThanOrEqual(calculatePrice(p + 1));
-    }
-    // tier 2 (50-99)
-    for (let p = 50; p < 99; p++) {
-      expect(calculatePrice(p)).toBeLessThanOrEqual(calculatePrice(p + 1));
-    }
-    // tier 3 (100+)
-    for (let p = 100; p < 150; p++) {
+  it("price is monotonically non-decreasing across the whole range, including tier boundaries", () => {
+    for (let p = 5; p < 150; p++) {
       expect(calculatePrice(p)).toBeLessThanOrEqual(calculatePrice(p + 1));
     }
   });
@@ -249,9 +246,11 @@ describe("pricingService — getPricingBreakdown tier labels", () => {
     expect(b.pricePerPage).toBe(0.3);
   });
 
-  it("subtotal = pageCount × pricePerPage", () => {
+  it("subtotal is the marginal bracket-by-bracket sum, not pageCount × top-tier pricePerPage", () => {
+    // 75 pages: 49 @ $0.50 (bracket 1-49) + 26 @ $0.40 (bracket 50-99) = $34.90
+    // (NOT 75 * 0.4 = $30.00 -- that flat formula is the H4 bug this fixes.)
     const b = getPricingBreakdown(75);
-    expect(b.subtotal).toBeCloseTo(75 * 0.4, 10);
+    expect(b.subtotal).toBeCloseTo(34.9, 10);
   });
 });
 
@@ -1297,8 +1296,8 @@ describe("booksRouter.calculatePrice — procedure", () => {
   it("price matches the calculatePrice pure function output", async () => {
     const caller = appRouter.createCaller(makeCtx(1));
     const result = await caller.books.calculatePrice({ pageCount: 100 });
-    // 100 pages × $0.30 = $30.00
-    expect(result.price).toBe(30.0);
+    // Marginal/bracket pricing (H4 fix): 49 @ $0.50 + 50 @ $0.40 + 1 @ $0.30 = $44.80
+    expect(result.price).toBe(44.8);
   });
 });
 
