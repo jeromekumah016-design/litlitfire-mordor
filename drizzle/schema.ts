@@ -119,7 +119,13 @@ export const pages = pgTable(
     index("pages_status_idx").on(table.processingStatus),
     index("pages_prompt_status_idx").on(table.promptStatus),
     index("pages_image_status_idx").on(table.imageStatus),
-    index("pages_bookPage_idx").on(table.bookId, table.pageNumber),
+    // Unique, not just indexed (audit finding, closed 2026-07-26): extractAndStorePages'
+    // check-then-insert is not atomic under concurrent calls (double-submit uploads,
+    // overlapping retries), so without a DB-level constraint two rows for the same
+    // (bookId, pageNumber) could already exist. See drizzle/0009_pages_unique_book_page.sql
+    // for the dedup + index swap, and gatePipeline.ts's isUniqueViolation catch for the
+    // app-level race recovery this enables.
+    uniqueIndex("pages_bookPage_idx").on(table.bookId, table.pageNumber),
   ]
 );
 

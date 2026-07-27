@@ -27,6 +27,8 @@ vi.mock("./db", () => ({
   getBook: vi.fn(),
   updateBook: vi.fn(),
   getPage: vi.fn(),
+  isUniqueViolation: (err: unknown) =>
+    !!err && typeof err === "object" && (err as { code?: string }).code === "23505",
 }));
 vi.mock("./_core/llm", () => ({
   invokeLLM: vi.fn(),
@@ -149,6 +151,42 @@ describe("extractAndStorePages", () => {
       })
     );
     expect(mGen).not.toHaveBeenCalled();
+  });
+
+  it("recovers from a lost insert race (23505 unique violation) by updating the row that won instead of throwing", async () => {
+    mExtract.mockResolvedValue({
+      totalPages: 1,
+      pages: [{ pageNumber: 1, text: "Once upon a time in a riverside town", width: 1, height: 1 }],
+    } as any);
+    // Initial snapshot sees no existing rows -- a concurrent call inserted one
+    // between this snapshot and our own createPage attempt.
+    mGetPages.mockResolvedValueOnce([]);
+    const conflictErr = Object.assign(new Error("duplicate key value violates unique constraint"), {
+      code: "23505",
+    });
+    mCreatePage.mockRejectedValueOnce(conflictErr);
+    // Re-fetch after losing the race finds the winner's row.
+    mGetPages.mockResolvedValueOnce([{ id: 99, pageNumber: 1 } as any]);
+
+    const result = await extractAndStorePages(1, Buffer.from("pdf"));
+
+    expect(result.extracted).toBe(1);
+    expect(mCreatePage).toHaveBeenCalledTimes(1);
+    expect(mUpdatePage).toHaveBeenCalledWith(
+      99,
+      expect.objectContaining({ ocrText: expect.stringContaining("riverside") })
+    );
+  });
+
+  it("does not swallow non-conflict errors from createPage", async () => {
+    mExtract.mockResolvedValue({
+      totalPages: 1,
+      pages: [{ pageNumber: 1, text: "Once upon a time in a riverside town", width: 1, height: 1 }],
+    } as any);
+    mGetPages.mockResolvedValue([]);
+    mCreatePage.mockRejectedValueOnce(new Error("connection reset"));
+
+    await expect(extractAndStorePages(1, Buffer.from("pdf"))).rejects.toThrow("connection reset");
   });
 });
 

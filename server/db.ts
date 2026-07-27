@@ -99,6 +99,17 @@ export async function createPage(page: InsertPage): Promise<Page | null> {
   return result[0] ?? null;
 }
 
+/**
+ * True if `err` is a Postgres unique-violation (SQLSTATE 23505). Callers that
+ * insert into `pages` under the (bookId, pageNumber) unique index (migration
+ * 0009) use this to detect they lost a race with a concurrent insert for the
+ * same page, rather than crashing the whole caller. Deliberately does NOT
+ * swallow other errors -- only this one code means "the row already exists".
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as { code?: string }).code === "23505";
+}
+
 export async function getBookPages(bookId: number): Promise<Page[]> {
   const db = await getDb();
   if (!db) return [];

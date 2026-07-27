@@ -30,6 +30,7 @@ import {
   getBook,
   updateBook,
   getPage,
+  isUniqueViolation,
 } from "./db";
 
 const MAX_PAGES = 20;
@@ -79,16 +80,40 @@ export async function extractAndStorePages(
         processingStatus: "pending",
       });
     } else {
-      await createPage({
-        bookId,
-        pageNumber,
-        ocrText: text,
-        thumbnailFileKey: thumbnailKey,
-        thumbnailUrl,
-        processingStatus: "pending",
-        promptStatus: "pending",
-        imageStatus: "pending",
-      });
+      try {
+        await createPage({
+          bookId,
+          pageNumber,
+          ocrText: text,
+          thumbnailFileKey: thumbnailKey,
+          thumbnailUrl,
+          processingStatus: "pending",
+          promptStatus: "pending",
+          imageStatus: "pending",
+        });
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        // Lost a race with a concurrent extractAndStorePages call (double-submit
+        // upload, overlapping retry) that inserted this (bookId, pageNumber) row
+        // first -- the unique index (migration 0009) is what surfaces this instead
+        // of silently allowing two rows for the same page. Recover by updating the
+        // row that won the race instead of failing the whole extraction pass.
+        console.warn(
+          `[Gate] Lost insert race for book ${bookId} page ${pageNumber}, updating the existing row instead`
+        );
+        const refreshed = await getBookPages(bookId);
+        const winner = refreshed.find((p) => p.pageNumber === pageNumber);
+        if (winner) {
+          await updatePage(winner.id, {
+            ocrText: text,
+            thumbnailFileKey: thumbnailKey,
+            thumbnailUrl,
+            promptStatus: "pending",
+            imageStatus: "pending",
+            processingStatus: "pending",
+          });
+        }
+      }
     }
     extracted++;
   }
