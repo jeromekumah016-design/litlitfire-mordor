@@ -123,3 +123,10 @@ _tmptest
 .pg-data-e2e/
 .offline-storage-e2e/
 
+# Vite/Vitest results cache — kept out of node_modules on purpose (see
+# vitest.config.ts comment): node_modules can be a build symlink with a
+# different owner than the checkout in some sandboxes, which makes Vite's
+# node_modules/.vite default cache dir unwritable and turns a 100%-passing
+# run into a false-negative nonzero exit.
+.vite-cache/
+
