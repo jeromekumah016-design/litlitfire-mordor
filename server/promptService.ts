@@ -413,11 +413,17 @@ the location, and the mood.`;
               .join("\n")
           : "  none";
 
-      // Chronology — show what has already happened before this page
+      // Chronology — show what has already happened before this page.
+      // Entries are expected as "Page N: <event>" (enforced by the bible's
+      // JSON schema). An entry that doesn't match can't be ordered against
+      // pageNumber, so it must be EXCLUDED, not passed through — the whole
+      // point of this gate is that a page never sees a future event, and
+      // defaulting an unparseable entry to "already happened" silently
+      // defeats that for exactly the entries most likely to be malformed.
       const priorEvents = pageNumber
         ? storyContext.chronology.filter((e) => {
             const match = e.match(/^Page (\d+):/);
-            return match ? parseInt(match[1], 10) < pageNumber : true;
+            return match ? parseInt(match[1], 10) < pageNumber : false;
           })
         : [];
       const chronologyNote =

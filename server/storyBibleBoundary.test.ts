@@ -213,9 +213,8 @@ describe("story-bible consistency across a book (page-mode pipeline)", () => {
     await processBookPipeline(1, Buffer.from("pdf"));
 
     const sys = systemPrompts();
-    // Page 1: no numbered events have happened yet; un-numbered entries always pass.
+    // Page 1: no numbered events have happened yet.
     expect(sys[0]).not.toContain("Page 1: Moses confronts Pharaoh");
-    expect(sys[0]).toContain("The sea parts");
     // Page 2 sees page-1 events only.
     expect(sys[1]).toContain("Page 1: Moses confronts Pharaoh");
     expect(sys[1]).not.toContain("Page 2: The river turns to blood");
@@ -224,6 +223,13 @@ describe("story-bible consistency across a book (page-mode pipeline)", () => {
     expect(sys[2]).toContain("Page 1: Moses confronts Pharaoh");
     expect(sys[2]).toContain("Page 2: The river turns to blood");
     expect(sys[2]).not.toContain("Page 3: The exodus begins");
+    // An un-numbered chronology entry ("The sea parts") can't be ordered
+    // against any page, so it must never leak in as an "already happened"
+    // event on ANY page — including page 1, where the old (buggy) fallback
+    // let it through unconditionally.
+    for (const s of sys) {
+      expect(s).not.toContain("The sea parts");
+    }
   });
 
   it("completes the whole book without a bible when the bible build fails", async () => {

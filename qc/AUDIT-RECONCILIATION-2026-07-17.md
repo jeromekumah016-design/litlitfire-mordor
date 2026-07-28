@@ -52,6 +52,27 @@
 >   a migration to make it unique is still a reasonable small hardening item,
 >   not done this session (schema migration, out of scope for a same-session
 >   drop-in fix).
+> - **STATUS UPDATE (2026-07-27):** two more items above are now closed and
+>   should not be re-derived. (1) The "NOT yet done: unique index on
+>   `pages(bookId, pageNumber)`" note in the P2 paragraph above is stale —
+>   closed 2026-07-26 (`pages_bookPage_idx` is a real `uniqueIndex` now,
+>   `drizzle/schema.ts`; defensive dedup migration `drizzle/0009_pages_unique_book_page.sql`;
+>   `server/db.ts`'s `isUniqueViolation` + self-healing race recovery in
+>   `gatePipeline.ts`'s `extractAndStorePages`). Not yet applied to any live
+>   DB from this sandbox (no `DATABASE_URL` here) — Jerome still needs to run
+>   the migration against real Postgres. (2) The "Medium" chronology-regex
+>   finding below (`promptService.ts:396`, now ~419) — "chronology regex
+>   passes non-matching entries" — is fixed. The bug: an unparseable
+>   chronology entry (missing the "Page N:" prefix) defaulted to `true`
+>   ("already happened"), so it always leaked into every page's prompt
+>   regardless of actual story order — the exact failure mode the chronology
+>   gate exists to prevent. Default flipped to `false` (exclude when
+>   unparseable) in `generateImagePrompt`'s prior-events filter
+>   (`promptService.ts`). `storyBibleBoundary.test.ts`'s chronology-gate test
+>   updated to assert the un-numbered "The sea parts" entry never leaks on
+>   any page (was previously asserted to leak on page 1 — that assertion
+>   *was* the bug, codified as expected behavior). No new tests needed
+>   (existing test tightened). Suite unchanged: 325/325. tsc clean.
 > - **Genuinely still open, confirmed real:** the scene-mode orphaning the
 >   07-24 sessions found (`pipelineService.ts`'s `processBookPipelineScenes`
 >   has zero callers now that `gatePipeline.ts` handles the live upload →
