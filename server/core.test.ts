@@ -22,6 +22,7 @@ vi.mock("./db", () => ({
   getUserBooks: vi.fn(),
   getBookPages: vi.fn(),
   getBookScenes: vi.fn(),
+  getPage: vi.fn(),
   updateBook: vi.fn(),
   updatePage: vi.fn(),
   deleteBook: vi.fn(),
@@ -52,6 +53,10 @@ vi.mock("./gatePipeline", () => ({
     rendered: 1,
     skipped: 0,
     errors: 0,
+  }),
+  reRenderApprovedPage: vi.fn().mockResolvedValue({
+    url: "https://cdn.example.com/generated.png",
+    key: "books/1/pages/1/generated/abc.png",
   }),
 }));
 
@@ -94,7 +99,7 @@ import {
 // Router + context — used for createCaller tests
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
-import { getBook, getBookPages, getBookScenes, getUserBooks, updateBook, updatePage, createBook, deleteBook } from "./db";
+import { getBook, getBookPages, getBookScenes, getUserBooks, getPage, updateBook, updatePage, createBook, deleteBook } from "./db";
 import { getPDFMetadata } from "./pdfService";
 
 // ---------------------------------------------------------------------------
@@ -1515,6 +1520,10 @@ describe("retryRouter — ownership checks (FORBIDDEN / NOT_FOUND)", () => {
   });
 
   describe("retryRouter.manualRetry", () => {
+    beforeEach(() => {
+      vi.mocked(getUserBooks as any).mockResolvedValue([]);
+    });
+
     it("throws NOT_FOUND when book does not exist", async () => {
       vi.mocked(getBook as any).mockResolvedValue(null);
       const caller = appRouter.createCaller(makeCtx(1));
@@ -1525,6 +1534,114 @@ describe("retryRouter — ownership checks (FORBIDDEN / NOT_FOUND)", () => {
       vi.mocked(getBook as any).mockResolvedValue(makeBook({ userId: 999 }));
       const caller = appRouter.createCaller(makeCtx(1));
       await expect(caller.retry.manualRetry({ pageId: 1, bookId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("throws NOT_FOUND when the page does not exist", async () => {
+      vi.mocked(getBook as any).mockResolvedValue(makeBook());
+      vi.mocked(getPage as any).mockResolvedValue(null);
+      const caller = appRouter.createCaller(makeCtx(1));
+      await expect(caller.retry.manualRetry({ pageId: 1, bookId: 1 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    });
+
+    it("throws BAD_REQUEST when the page belongs to a different book", async () => {
+      vi.mocked(getBook as any).mockResolvedValue(makeBook({ id: 1 }));
+      vi.mocked(getPage as any).mockResolvedValue(makePage({ id: 1, bookId: 2 }));
+      const caller = appRouter.createCaller(makeCtx(1));
+      await expect(caller.retry.manualRetry({ pageId: 1, bookId: 1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("throws PRECONDITION_FAILED when the page is not approved", async () => {
+      vi.mocked(getBook as any).mockResolvedValue(makeBook());
+      vi.mocked(getPage as any).mockResolvedValue(
+        makePage({ promptStatus: "prompt_ready", generatedPrompt: "a scene" })
+      );
+      const caller = appRouter.createCaller(makeCtx(1));
+      await expect(caller.retry.manualRetry({ pageId: 1, bookId: 1 })).rejects.toMatchObject({
+        code: "PRECONDITION_FAILED",
+      });
+    });
+
+    it("throws PRECONDITION_FAILED when approved but generatedPrompt is empty", async () => {
+      vi.mocked(getBook as any).mockResolvedValue(makeBook());
+      vi.mocked(getPage as any).mockResolvedValue(
+        makePage({ promptStatus: "approved", generatedPrompt: "   " })
+      );
+      const caller = appRouter.createCaller(makeCtx(1));
+      await expect(caller.retry.manualRetry({ pageId: 1, bookId: 1 })).rejects.toMatchObject({
+        code: "PRECONDITION_FAILED",
+      });
+    });
+
+    // The actual bug fix (2026-07-29): manualRetry used to reset bookkeeping
+    // columns and return `{ success: true }` without ever calling any render
+    // function -- confirmed live since only ownership-check tests existed
+    // for this procedure before. Assert it now actually re-renders.
+    it("resets bookkeeping and calls reRenderApprovedPage for an eligible page", async () => {
+      vi.mocked(getBook as any).mockResolvedValue(makeBook());
+      vi.mocked(getPage as any).mockResolvedValue(
+        makePage({
+          promptStatus: "approved",
+          generatedPrompt: "a scene",
+          imageStatus: "image_error",
+          processingStatus: "error",
+          retryCount: 3,
+        })
+      );
+      vi.mocked(updatePage as any).mockResolvedValue(undefined);
+      const { reRenderApprovedPage } = await import("./gatePipeline");
+      vi.mocked(reRenderApprovedPage).mockResolvedValue({
+        url: "https://cdn.example.com/generated.png",
+        key: "books/1/pages/1/generated/abc.png",
+      });
+
+      const caller = appRouter.createCaller(makeCtx(1));
+      const result = await caller.retry.manualRetry({ pageId: 1, bookId: 1 });
+
+      expect(result.success).toBe(true);
+      expect(result.url).toBe("https://cdn.example.com/generated.png");
+      expect(result.key).toBe("books/1/pages/1/generated/abc.png");
+      expect(reRenderApprovedPage).toHaveBeenCalledWith(1);
+      expect(updatePage).toHaveBeenCalledWith(1, {
+        imageStatus: "pending",
+        processingStatus: "pending",
+        errorMessage: null,
+        retryCount: 0,
+      });
+    });
+
+    it("surfaces a render failure as INTERNAL_SERVER_ERROR instead of a false success", async () => {
+      vi.mocked(getBook as any).mockResolvedValue(makeBook());
+      vi.mocked(getPage as any).mockResolvedValue(
+        makePage({ promptStatus: "approved", generatedPrompt: "a scene" })
+      );
+      vi.mocked(updatePage as any).mockResolvedValue(undefined);
+      const { reRenderApprovedPage } = await import("./gatePipeline");
+      vi.mocked(reRenderApprovedPage).mockRejectedValue(new Error("DALL-E timeout"));
+
+      const caller = appRouter.createCaller(makeCtx(1));
+      await expect(caller.retry.manualRetry({ pageId: 1, bookId: 1 })).rejects.toMatchObject({
+        code: "INTERNAL_SERVER_ERROR",
+      });
+    });
+
+    it("blocks the retry with TOO_MANY_REQUESTS when the daily render cap is exhausted, without rendering", async () => {
+      vi.mocked(getBook as any).mockResolvedValue(makeBook());
+      vi.mocked(getPage as any).mockResolvedValue(
+        makePage({ promptStatus: "approved", generatedPrompt: "a scene" })
+      );
+      // Two other books already started today at the per-book render cap
+      // (PIPELINE_MAX_PAGES=20 each) exhaust the default 40-unit daily cap.
+      vi.mocked(getUserBooks as any).mockResolvedValue([
+        makeBook({ id: 2, pageCount: 20, processingStatus: "processing" }),
+        makeBook({ id: 3, pageCount: 20, processingStatus: "processing" }),
+      ]);
+      const { reRenderApprovedPage } = await import("./gatePipeline");
+
+      const caller = appRouter.createCaller(makeCtx(1));
+      await expect(caller.retry.manualRetry({ pageId: 1, bookId: 1 })).rejects.toMatchObject({
+        code: "TOO_MANY_REQUESTS",
+      });
+      expect(reRenderApprovedPage).not.toHaveBeenCalled();
     });
   });
 });
