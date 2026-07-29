@@ -33,11 +33,15 @@ vi.mock("./db", () => ({
 vi.mock("./_core/llm", () => ({
   invokeLLM: vi.fn(),
 }));
+vi.mock("./retryService", () => ({
+  markPageForRetry: vi.fn().mockResolvedValue(true),
+}));
 
 import { extractPDFPages } from "./pdfService";
 import { buildStoryContext, generateImagePrompt } from "./promptService";
 import { generateImage } from "./_core/imageGeneration";
 import { invokeLLM } from "./_core/llm";
+import { markPageForRetry } from "./retryService";
 import {
   createPage,
   updatePage,
@@ -64,6 +68,7 @@ const mGetBook = vi.mocked(getBook);
 const mUpdateBook = vi.mocked(updateBook);
 const mGetPage = vi.mocked(getPage);
 const mLlm = vi.mocked(invokeLLM);
+const mMarkRetry = vi.mocked(markPageForRetry);
 
 function offlineJson(payload: unknown) {
   return {
@@ -364,6 +369,51 @@ describe("renderApprovedImages", () => {
     );
   });
 
+  it("schedules an automatic retry (markPageForRetry) when generateImage throws", async () => {
+    mGetPages.mockResolvedValue([
+      {
+        id: 10,
+        pageNumber: 1,
+        promptStatus: "approved",
+        generatedPrompt: "A riverside oil painting",
+        imageStatus: "pending",
+        skipSuggested: false,
+      },
+    ] as any);
+    mGen.mockRejectedValueOnce(new Error("DALL-E timeout"));
+
+    const r = await renderApprovedImages(1);
+
+    expect(r.errors).toBe(1);
+    expect(mMarkRetry).toHaveBeenCalledWith(
+      10,
+      1,
+      expect.stringContaining("DALL-E timeout"),
+      expect.stringContaining("automatic retry")
+    );
+  });
+
+  it("does NOT schedule a retry for a structural failure (approved page, no persisted prompt)", async () => {
+    mGetPages.mockResolvedValue([
+      {
+        id: 10,
+        pageNumber: 1,
+        promptStatus: "approved",
+        generatedPrompt: "",
+        imageStatus: "pending",
+        skipSuggested: false,
+      },
+    ] as any);
+
+    const r = await renderApprovedImages(1);
+
+    expect(r.errors).toBe(1);
+    expect(mGen).not.toHaveBeenCalled();
+    // Retrying can't fix a missing prompt -- it needs a human to re-approve
+    // a real one, so this must not enter the automatic backoff queue.
+    expect(mMarkRetry).not.toHaveBeenCalled();
+  });
+
   it("bar §4: render never calls generateImagePrompt (uses persisted prompt only)", async () => {
     mGetPages.mockResolvedValue([
       {
@@ -417,6 +467,27 @@ describe("reRenderApprovedPage (retry path, bar §5)", () => {
     expect(mPrompt).not.toHaveBeenCalled();
     expect(mGen).toHaveBeenCalledWith(
       expect.objectContaining({ prompt: "LOCKED_PROMPT" })
+    );
+  });
+
+  it("schedules an automatic retry (markPageForRetry) when generateImage throws", async () => {
+    const { reRenderApprovedPage } = await import("./gatePipeline");
+    mGetPage.mockResolvedValue({
+      id: 10,
+      bookId: 1,
+      pageNumber: 1,
+      promptStatus: "approved",
+      generatedPrompt: "LOCKED_PROMPT",
+    } as any);
+    mGen.mockRejectedValueOnce(new Error("DALL-E timeout"));
+
+    await expect(reRenderApprovedPage(10)).rejects.toThrow("DALL-E timeout");
+
+    expect(mMarkRetry).toHaveBeenCalledWith(
+      10,
+      1,
+      expect.stringContaining("DALL-E timeout"),
+      expect.stringContaining("automatic retry")
     );
   });
 });

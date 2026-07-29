@@ -11,6 +11,12 @@
  *    Records the REAL generatedImageFileKey from generateImage().
  *
  * Decoupling: image gen receives prompt + keyPrefix + params only — never raw OCR.
+ *
+ * Render failures (renderApprovedImages and its single-page sibling
+ * reRenderApprovedPage) call retryService.markPageForRetry so retryWorker's
+ * automatic polling can pick them up on a backoff schedule. Structural
+ * failures that a retry can't fix (approved page with no persisted prompt)
+ * do NOT schedule a retry — see the inline comment at that call site.
  */
 
 import { extractPDFPages, generatePageThumbnail } from "./pdfService";
@@ -23,6 +29,7 @@ import {
 import { generateImage } from "./_core/imageGeneration";
 import { type ImageGenParams, normalizeImageParams } from "./_core/imageParams";
 import { storagePut } from "./storage";
+import { markPageForRetry } from "./retryService";
 import {
   createPage,
   updatePage,
@@ -245,6 +252,13 @@ export async function reRenderApprovedPage(
       processingStatus: "error",
       errorMessage: msg,
     });
+    // Schedule an automatic backoff retry. This was the one call the two-phase
+    // gate pipeline dropped when it replaced pipelineService.ts (which DID call
+    // this on the same failure path) -- without it, nextRetryAt/retryCount never
+    // populate here, so retryService.getPagesReadyForRetry's `nextRetryAt < now()`
+    // filter can never match these rows and the retry worker silently never
+    // finds anything to do, even with RETRY_WORKER_ENABLED=true.
+    await markPageForRetry(pageId, page.bookId, msg, "Re-render failed - scheduled for automatic retry");
     throw e;
   }
 }
@@ -321,6 +335,10 @@ export async function renderApprovedImages(
         processingStatus: "error",
         errorMessage: msg,
       });
+      // See reRenderApprovedPage's matching comment: schedules nextRetryAt/
+      // retryCount so retryWorker's automatic polling can actually find this
+      // page (it never could before -- both render call sites lacked this).
+      await markPageForRetry(page.id, bookId, msg, "Image generation failed - scheduled for automatic retry");
       errors++;
     }
   }
