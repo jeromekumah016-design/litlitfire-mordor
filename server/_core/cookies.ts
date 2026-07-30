@@ -39,10 +39,14 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  // sameSite=none requires Secure; on plain http://localhost that combo is
+  // rejected by browsers and silently kills the session cookie. Use lax +
+  // non-secure on local HTTP so demo login and OAuth both work.
+  const secure = isSecureRequest(req);
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    sameSite: secure ? "none" : "lax",
+    secure,
   };
 }

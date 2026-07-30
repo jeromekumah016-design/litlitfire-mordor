@@ -1,5 +1,15 @@
 # LiteralLiterature TODO
 
+## Scene-Based Illustration (multiple distinct images per book)
+- [x] scenePlanner.ts: select distinct illustration-worthy scenes (selectScenes)
+- [x] Deterministic fallback (one scene per meaningful page)
+- [x] generateScenePrompts: one prompt per scene using locked visual bible
+- [x] Unit tests (23) for dedupe / ranking / clamp / fallback / prompt pairing
+- [x] Wire generateScenePrompts into processBookPipeline (behind a flag)
+- [x] Dedicated `scenes` table cut-over (APPROVED): scene mode writes only to scenes, no synthetic page rows; books.generationMode flag; dual read path; +migration 0005
+- [x] Surface scene plan + rationale in DevModeDiagnostics / gallery
+- [x] User-facing gallery shows scene title + source-page caption (shared/galleryImages, +5 tests)
+
 ## Core Features
 
 ### 1. PDF Upload and Batch Processing
@@ -22,6 +32,7 @@
 - [x] Generate LLM prompts from OCR text (promptService)
 - [x] Integrate image generation per page (generateImage)
 - [x] Chain pipeline with error handling (pipelineService)
+- [x] Persist generated images under book-scoped storage keys and record the REAL file key (fixed dangling generatedImageFileKey in page + scene pipelines; generateImage keyPrefix)
 
 ### 4. PDF Processing Diagnostics in Dev Mode
 - [x] Create Dev Mode panel in UI (DevModeDiagnostics)
@@ -93,6 +104,7 @@
 - [x] Write pdfService.test.ts with real extraction tests (skipped due to pdfjs env issues)
 - [x] Write pricingService.test.ts for pricing logic (24 tests passing)
 - [x] Write integration tests for pipeline (manual testing ready, backend ready)
+- [x] Invariant coverage: story-bible consistency + transcribe/render phase boundary (storyBibleBoundary.test.ts, 10 tests: bible built once per book, locked-field drift check across page prompts, chronology gate, bible-failure degradation, image generator never receives raw OCR text; +1 scene-mode render-boundary test)
 
 ### Deployment & Verification
 - [x] Run full test suite (25 tests passing)
@@ -245,6 +257,7 @@
 
 
 ## Performance Optimization (v2.0)
+> AUDIT (2026-07-17, see STATUS_LOG.md): most checkmarks below describe code that exists but is never imported by the real entry point (server/_core/index.ts -> routers.ts). Confirmed wired: resilience.ts (retry), ocrCacheService.ts + dataStructureOptimizations.ts (as of 2026-07-17). Confirmed orphaned: connectionPool.ts, dbOptimizationHelpers.ts, dbOptimized.ts, memoryOptimization.ts, dbPerformanceWrapper.ts, trpcMiddleware.ts, metricsRouter.ts, progressRouter.ts, progressTracker.ts, streamingUpload.ts. Needs Jerome's call: wire in, delete, or leave as reference. Checkboxes below left as historical record, not re-verified line by line.
 
 ### Frontend Optimization
 - [x] Integrate optimized carousel/gallery components into existing routes (Books.tsx and ImageGalleryView.tsx)
@@ -432,18 +445,19 @@
 - [x] Preserve formatting and structure information (viewport dimensions preserved)
 
 ### Thumbnail Generation
+> AUDIT (2026-07-17/18, see STATUS_LOG.md + qc/AUDIT-RECONCILIATION-2026-07-17.md, finding H3): checkmarks below are false. `generatePageThumbnail` returns a hardcoded 1x1 PNG in production; real thumbnails were deferred to client-side rendering to avoid a native `canvas` dependency (which isn't installed). This was also silently feeding Tesseract OCR a blank image on the single-page retry path -- fixed 2026-07-18 by deriving retry-path text via pdfjs instead of OCR-on-thumbnail (see pdfService.extractSinglePageText), but real server-side rasterization itself is still not implemented. Needs Jerome's call: implement for real (canvas or alternative rasterizer), or update these checkboxes to reflect client-side-only.
 - [x] Replace 1x1 transparent PNG placeholders with real thumbnails (generateThumbnailForPage function)
 - [x] Implement canvas-based PDF page rendering (using canvas library with pdfjs-dist)
 - [x] Generate proper preview images for each page (canvas.toBuffer('image/png'))
 - [x] Optimize thumbnail file sizes for S3 storage (PNG compression via canvas)
 
 ### Page Count Estimation
-- [x] Replace KB-based estimation with actual PDF metadata (pdfDocument.numPages)
-- [x] Use pdfjs-dist to read true page count (accurate metadata reading)
-- [x] Validate page count before processing starts (validation in extractPDFPages)
+- [x] Replace KB-based estimation with actual PDF metadata 
 
-### OCR Integration
-- [x] Ensure OCR is actually called in context-aware pipeline (real text extraction in extractPageText)
-- [x] Pass real extracted text to LLM prompts (text field now contains actual extracted content)
-- [x] Verify OCR results are used in image generation (text passed to promptService)
-- [x] Add OCR result validation and error handling (error handling with fallback to empty string)
+## Image-Gen Parameter Controls (render-side)
+- [x] Render param layer (aspectRatio/quality/style) in server/_core/imageParams.ts (normalize/defaults/DALL-E size map)
+- [x] Expose controls end-to-end: books.upload accepts validated imageParams (strict zod enums) -> processBookPipeline -> scene + page pipelines -> generateImage
+- [x] Resolve params once per book; record resolved render params on each scene row for audit
+- [x] Decoupling invariant upheld: params are render-side only, never OCR-derived
+- [x] Client UI control to set aspect/quality/style on upload (PDFUploadForm: aspect/quality/style ToggleGroups -> books.upload imageParams; defaults square/standard/vivid)
+- [ ] Persist chosen params on the book so processPdf/retry reuse them (needs schema migration -- NEEDS JEROME)

@@ -9,7 +9,6 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startRetryWorker, stopRetryWorker } from "../retryWorker";
-import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -33,9 +32,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Body limit must cover base64-encoded PDFs up to 100 MB (≈137 MB base64).
+  app.use(express.json({ limit: "150mb" }));
+  app.use(express.urlencoded({ limit: "150mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   // tRPC API
@@ -64,21 +63,26 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
   });
 
-  // Start the automatic retry worker so failed pages scheduled for retry are
-  // actually reprocessed. Without this, nextRetryAt is set but never polled.
-  startRetryWorker({
-    enabled: ENV.retryWorkerEnabled,
-    pollIntervalMs: ENV.retryWorkerIntervalMs,
-    maxConcurrentRetries: 3,
-  });
+  // Retry worker is OPT-IN. Audit P0 (qc/AUDIT-RECONCILIATION-2026-07-17.md):
+  // on this branch the worker is live and, combined with 1×1 thumbnails + prompt
+  // regeneration on retry, can burn money on garbage. Default OFF until the
+  // worker is rebuilt as render-only against persisted prompts. Set
+  // RETRY_WORKER_ENABLED=true to re-enable intentionally.
+  const retryWorkerEnabled = process.env.RETRY_WORKER_ENABLED === "true";
+  const retryIntervalMs = parseInt(process.env.RETRY_WORKER_INTERVAL_MS || "30000");
+  if (retryWorkerEnabled && process.env.NODE_ENV !== "test") {
+    startRetryWorker({ maxConcurrentRetries: 3, pollIntervalMs: retryIntervalMs, enabled: true });
+  } else if (process.env.NODE_ENV !== "test") {
+    console.log("[RetryWorker] disabled (set RETRY_WORKER_ENABLED=true to enable)");
+  }
 
-  const shutdown = (signal: string) => {
-    console.log(`Received ${signal}, shutting down gracefully...`);
+  // Graceful shutdown
+  const shutdown = () => {
     stopRetryWorker();
     server.close(() => process.exit(0));
   };
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 startServer().catch(console.error);

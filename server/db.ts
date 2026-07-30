@@ -1,18 +1,11 @@
-import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { desc, inArray, eq } from "drizzle-orm";
 import {
-  InsertUser,
-  users,
-  books,
-  pages,
-  processingJobs,
-  type InsertBook,
-  type Book,
-  type InsertPage,
-  type Page,
-  type InsertProcessingJob,
-  type ProcessingJob,
+  InsertUser, users, books, pages, scenes, processingJobs,
+  type InsertBook, type Book, type InsertPage, type Page,
+  type InsertScene, type Scene,
+  type InsertProcessingJob, type ProcessingJob,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -36,43 +29,22 @@ export async function getDb() {
 
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
-
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
+  if (!db) { console.warn("[Database] Cannot upsert user: database not available"); return; }
 
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
-
   const textFields = ["name", "email", "loginMethod"] as const;
   for (const field of textFields) {
-    if (user[field] !== undefined) {
-      values[field] = user[field] ?? null;
-      updateSet[field] = user[field] ?? null;
-    }
+    if (user[field] !== undefined) { values[field] = user[field] ?? null; updateSet[field] = user[field] ?? null; }
   }
-
-  if (user.lastSignedIn !== undefined) {
-    values.lastSignedIn = user.lastSignedIn;
-    updateSet.lastSignedIn = user.lastSignedIn;
-  }
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
-  }
-
+  if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
+  if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
+  else if (user.openId === ENV.ownerOpenId) { values.role = "admin"; updateSet.role = "admin"; }
   if (!values.lastSignedIn) values.lastSignedIn = new Date();
   if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
 
-  await db
-    .insert(users)
-    .values(values)
-    .onConflictDoUpdate({ target: users.openId, set: updateSet });
+  await db.insert(users).values(values).onConflictDoUpdate({ target: users.openId, set: updateSet });
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -80,6 +52,12 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result[0];
+}
+
+export async function deleteBook(bookId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(books).where(eq(books.id, bookId));
 }
 
 export async function createBook(book: InsertBook): Promise<Book | null> {
@@ -117,35 +95,6 @@ export async function updateBook(bookId: number, updates: Partial<Book>): Promis
 export async function createPage(page: InsertPage): Promise<Page | null> {
   const db = await getDb();
   if (!db) return null;
-
-  // Upsert by (bookId, pageNumber). Processing a page — whether the first run or
-  // a retry — must update the existing row rather than insert a duplicate. The
-  // schema declares pages_bookPage_idx as a UNIQUE index on (bookId, pageNumber)
-  // (applied via `pnpm db:push`), so the database enforces this as a backstop.
-  // Page processing for a given page is sequential (the pipeline loops pages in
-  // order and the retry worker handles distinct pages), so this select-then-write
-  // path normally never races; if a duplicate insert ever slips through, the
-  // unique index rejects it instead of silently corrupting the book.
-  const existing = await db
-    .select()
-    .from(pages)
-    .where(and(eq(pages.bookId, page.bookId), eq(pages.pageNumber, page.pageNumber)))
-    .limit(1);
-
-  if (existing.length > 0) {
-    const { bookId: _bookId, pageNumber: _pageNumber, ...rest } = page;
-    const updateSet: Record<string, unknown> = { updatedAt: new Date() };
-    for (const [key, value] of Object.entries(rest)) {
-      if (value !== undefined) updateSet[key] = value;
-    }
-    const updated = await db
-      .update(pages)
-      .set(updateSet)
-      .where(eq(pages.id, existing[0].id))
-      .returning();
-    return updated[0] ?? null;
-  }
-
   const result = await db.insert(pages).values(page).returning();
   return result[0] ?? null;
 }
@@ -156,12 +105,11 @@ export async function getBookPages(bookId: number): Promise<Page[]> {
   return db.select().from(pages).where(eq(pages.bookId, bookId)).orderBy(pages.pageNumber);
 }
 
-export async function deleteBook(bookId: number): Promise<void> {
+export async function getPage(pageId: number): Promise<Page | null> {
   const db = await getDb();
-  if (!db) return;
-  // pages (and processing/retry rows referencing the book) cascade via the
-  // onDelete: "cascade" FK on pages.bookId.
-  await db.delete(books).where(eq(books.id, bookId));
+  if (!db) return null;
+  const result = await db.select().from(pages).where(eq(pages.id, pageId)).limit(1);
+  return result[0] ?? null;
 }
 
 export async function updatePage(pageId: number, updates: Partial<Page>): Promise<void> {
@@ -187,4 +135,122 @@ export async function updateProcessingJob(jobId: number, updates: Partial<Proces
   const db = await getDb();
   if (!db) return;
   await db.update(processingJobs).set(updates).where(eq(processingJobs.id, jobId));
+}
+
+// ---------------------------------------------------------------------------
+// Scene helpers (scene-mode books: multiple distinct images per book)
+// ---------------------------------------------------------------------------
+
+export async function createScene(scene: InsertScene): Promise<Scene | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(scenes).values(scene).returning();
+  return result[0] ?? null;
+}
+
+export async function getBookScenes(bookId: number): Promise<Scene[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(scenes).where(eq(scenes.bookId, bookId)).orderBy(scenes.sceneIndex);
+}
+
+export async function updateScene(sceneId: number, updates: Partial<Scene>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(scenes).set({ ...updates, updatedAt: new Date() }).where(eq(scenes.id, sceneId));
+}
+
+// Convenience: flip a book onto the scene write-path. Page-mode is the default.
+export async function setBookGenerationMode(bookId: number, mode: "page" | "scene"): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(books).set({ generationMode: mode as any }).where(eq(books.id, bookId));
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard Statistics Queries
+// ---------------------------------------------------------------------------
+
+export async function getDashboardStats(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const userBooks = await db.select().from(books).where(eq(books.userId, userId));
+  const totalBooks = userBooks.length;
+  const completedBooks = userBooks.filter((b) => b.processingStatus === "completed").length;
+  const processingBooks = userBooks.filter((b) => b.processingStatus === "processing").length;
+  const failedBooks = userBooks.filter((b) => b.processingStatus === "failed").length;
+
+  const bookIds = userBooks.map((b) => b.id);
+
+  // FIX: single query instead of one per book (N+1 eliminated)
+  const allPages = bookIds.length > 0
+    ? await db.select().from(pages).where(inArray(pages.bookId, bookIds))
+    : [];
+
+  const totalPages = allPages.length;
+  const completedPages = allPages.filter((p) => p.processingStatus === "done").length;
+  const failedPages = allPages.filter((p) => p.processingStatus === "error").length;
+
+  return {
+    totalBooks, completedBooks, processingBooks, failedBooks,
+    totalPages, completedPages, failedPages,
+    successRate: totalPages > 0 ? Math.round((completedPages / totalPages) * 100) : 0,
+  };
+}
+
+export async function getRecentBooks(userId: number, limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(books).where(eq(books.userId, userId)).orderBy(desc(books.createdAt)).limit(limit);
+}
+
+export async function getProcessingMetrics(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const userBooks = await db.select().from(books).where(eq(books.userId, userId));
+  const bookIds = userBooks.map((b) => b.id);
+
+  if (bookIds.length === 0) {
+    return { avgProcessingTime: 0, totalProcessingTime: 0, pagesByStatus: { done: 0, error: 0, processing: 0, pending: 0 }, recentErrors: [] };
+  }
+
+  const allPages = await db.select().from(pages).where(inArray(pages.bookId, bookIds));
+
+  const pagesByStatus = {
+    done: allPages.filter((p) => p.processingStatus === "done").length,
+    error: allPages.filter((p) => p.processingStatus === "error").length,
+    processing: allPages.filter((p) => p.processingStatus === "processing").length,
+    pending: allPages.filter((p) => p.processingStatus === "pending").length,
+  };
+
+  const recentErrors = allPages
+    .filter((p) => p.errorMessage && p.processingStatus === "error")
+    .slice(0, 5)
+    .map((p) => ({ pageId: p.id, pageNumber: p.pageNumber, error: p.errorMessage, timestamp: p.updatedAt }));
+
+  const completedPages = allPages.filter((p) => p.processingStatus === "done");
+  const totalTimeMs = completedPages.reduce((sum, p) => {
+    const createdAt = p.createdAt?.getTime() || 0;
+    const updatedAt = p.updatedAt?.getTime() || 0;
+    return sum + (updatedAt - createdAt);
+  }, 0);
+  const avgProcessingTime = completedPages.length > 0 ? totalTimeMs / completedPages.length / 1000 : 0;
+
+  return {
+    avgProcessingTime: Math.round(avgProcessingTime),
+    totalProcessingTime: Math.round(totalTimeMs / 1000),
+    pagesByStatus,
+    recentErrors,
+  };
+}
+
+export async function getLibraryOverview(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const stats = await getDashboardStats(userId);
+  const recentBooks = await getRecentBooks(userId, 5);
+  const metrics = await getProcessingMetrics(userId);
+  return { stats, recentBooks, metrics };
 }

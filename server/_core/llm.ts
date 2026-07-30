@@ -1,4 +1,6 @@
 import { ENV } from "./env";
+import { isLLMOffline } from "./offline";
+import OpenAI from "openai";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -209,12 +211,27 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  `${ENV.openAiBaseUrl.replace(/\/$/, "")}/v1/chat/completions`;
+// Prefer OpenAI if key present (for book->image prompt generation to work with documented env),
+// fall back to forge/manus for legacy.
+const resolveChatUrl = () => {
+  if (ENV.openAiApiKey) {
+    return "https://api.openai.com/v1/chat/completions";
+  }
+  if (ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0) {
+    return `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`;
+  }
+  return "https://api.openai.com/v1/chat/completions"; // default openai
+};
+
+const getApiKey = () => {
+  if (ENV.openAiApiKey) return ENV.openAiApiKey;
+  if (ENV.forgeApiKey) return ENV.forgeApiKey;
+  return "";
+};
 
 const assertApiKey = () => {
-  if (!ENV.openAiApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!ENV.openAiApiKey && !ENV.forgeApiKey) {
+    throw new Error("OPENAI_API_KEY (or BUILT_IN_FORGE_API_KEY) is not configured");
   }
 };
 
@@ -263,7 +280,163 @@ const normalizeResponseFormat = ({
   };
 };
 
+let _openai: OpenAI | null = null;
+function getOpenAIForLLM() {
+  if (!_openai) {
+    const key = ENV.openAiApiKey;
+    if (!key) return null;
+    _openai = new OpenAI({ apiKey: key });
+  }
+  return _openai;
+}
+
+/** Extract the schema name requested for this call, if any. */
+function requestedSchemaName(params: InvokeParams): string | undefined {
+  const rf = params.responseFormat || params.response_format;
+  if (rf && rf.type === "json_schema") return rf.json_schema?.name;
+  const os = params.outputSchema || params.output_schema;
+  return os?.name;
+}
+
+/** Flatten message content to plain text for offline heuristics. */
+function messageText(content: Message["content"]): string {
+  const parts = Array.isArray(content) ? content : [content];
+  return parts
+    .map((p) => (typeof p === "string" ? p : p.type === "text" ? p.text : ""))
+    .join(" ");
+}
+
+/**
+ * Offline LLM stub. Returns deterministic, schema-VALID JSON so every caller
+ * parses cleanly with no network and no spend:
+ *  - image_prompt  -> a templated prompt derived from the page/scene text.
+ *  - story_context -> a minimal-but-valid visual bible (empty entity lists).
+ *  - scene_plan    -> empty list, so scenePlanner uses its deterministic
+ *                     one-scene-per-page fallback.
+ * Any other / no schema -> empty JSON object.
+ */
+function buildOfflineLLMResult(params: InvokeParams): InvokeResult {
+  const schema = requestedSchemaName(params);
+  const lastUser = [...params.messages].reverse().find((m) => m.role === "user");
+  const userText = lastUser ? messageText(lastUser.content) : "";
+
+  let payload: unknown;
+  switch (schema) {
+    case "image_prompt": {
+      const snippet = userText.replace(/\s+/g, " ").trim().slice(0, 160) || "an empty page";
+      payload = {
+        prompt: `[offline] Illustration of: ${snippet}`,
+        style: "offline placeholder illustration",
+        mood: "neutral",
+      };
+      break;
+    }
+    case "story_context":
+      payload = {
+        characters: [],
+        factions: [],
+        locations: [],
+        keyObjects: [],
+        chronology: [],
+        visualMotifs: [],
+        relationships: [],
+        tone: "neutral",
+        setting: "unspecified",
+        timePeriod: "unspecified",
+        artStyle: "offline placeholder illustration",
+        narrativeSummary: "Offline mode: story context not generated (no LLM call).",
+      };
+      break;
+    case "scene_plan":
+      payload = { scenes: [] };
+      break;
+    case "book_genres": {
+      const lower = userText.toLowerCase();
+      const genres: string[] = [];
+      if (/poem|verse|stanza/.test(lower)) genres.push("poetry");
+      if (/chapter|once upon|said |novel|story|captain|riverside/.test(lower)) {
+        genres.push("narrative fiction");
+      }
+      if (/history|according to|study|research/.test(lower)) genres.push("nonfiction");
+      if (genres.length === 0) genres.push("literary narrative");
+      payload = {
+        genres,
+        confidence: "low",
+        notes: "Offline genre discovery (no LLM).",
+      };
+      break;
+    }
+    case "plot_map": {
+      const re = /---\s*Page\s+(\d+)\s*---/gi;
+      const units: Array<{
+        unitIndex: number;
+        sourcePageFrom: number;
+        sourcePageTo: number;
+        role: string;
+        title: string;
+        rationale: string;
+      }> = [];
+      const matches: RegExpExecArray[] = [];
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(userText)) !== null) matches.push(m);
+      if (matches.length === 0) {
+        const meaningful = userText.trim().length > 40;
+        units.push({
+          unitIndex: 0,
+          sourcePageFrom: 1,
+          sourcePageTo: 1,
+          role: meaningful ? "main" : "skip",
+          title: meaningful ? "Opening" : "Empty",
+          rationale: meaningful
+            ? "Offline: single main plot unit"
+            : "Offline: insufficient text",
+        });
+      } else {
+        for (let i = 0; i < matches.length; i++) {
+          const pageNum = parseInt(matches[i][1], 10) || i + 1;
+          const start = matches[i].index! + matches[i][0].length;
+          const end = i + 1 < matches.length ? matches[i + 1].index! : userText.length;
+          const body = userText.slice(start, end).trim();
+          const main = body.length > 40;
+          units.push({
+            unitIndex: i,
+            sourcePageFrom: pageNum,
+            sourcePageTo: pageNum,
+            role: main ? "main" : "skip",
+            title: main ? `Plot beat p.${pageNum}` : `Skip p.${pageNum}`,
+            rationale: main
+              ? "Offline: page has enough narrative text"
+              : "Offline: front matter / empty / non-plot",
+          });
+        }
+      }
+      payload = {
+        authorIntent: "Offline: convey the narrative through key illustrated moments.",
+        plotUnits: units,
+      };
+      break;
+    }
+    default:
+      payload = {};
+  }
+
+  return {
+    id: `offline-${Date.now()}`,
+    created: Math.floor(Date.now() / 1000),
+    model: "offline-stub",
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: JSON.stringify(payload) },
+        finish_reason: "stop",
+      },
+    ],
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  };
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  if (isLLMOffline()) return buildOfflineLLMResult(params);
   assertApiKey();
 
   const {
@@ -277,8 +450,52 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  // If we have OpenAI key, prefer SDK for reliability with json_schema etc.
+  const openai = getOpenAIForLLM();
+  if (openai) {
+    const formattedMessages = messages.map((m) => {
+      const norm = normalizeMessage(m);
+      return {
+        role: norm.role as any,
+        content: norm.content as any,
+        ...(norm.name ? { name: norm.name } : {}),
+        ...( (norm as any).tool_call_id ? { tool_call_id: (norm as any).tool_call_id } : {}),
+      };
+    });
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: formattedMessages as any,
+      max_tokens: params.maxTokens ?? params.max_tokens ?? 4096,
+      ...(tools && tools.length ? { tools: tools as any } : {}),
+      ...( (toolChoice || tool_choice) ? { tool_choice: normalizeToolChoice(toolChoice || tool_choice, tools) as any } : {}),
+      response_format: normalizeResponseFormat({ responseFormat, response_format, outputSchema, output_schema }) as any,
+    });
+
+    return {
+      id: completion.id,
+      created: completion.created,
+      model: completion.model,
+      choices: completion.choices.map((c: any, i: number) => ({
+        index: i,
+        message: {
+          role: c.message.role,
+          content: c.message.content ?? "",
+          tool_calls: c.message.tool_calls,
+        },
+        finish_reason: c.finish_reason,
+      })),
+      usage: completion.usage ? {
+        prompt_tokens: completion.usage.prompt_tokens,
+        completion_tokens: completion.usage.completion_tokens,
+        total_tokens: completion.usage.total_tokens,
+      } : undefined,
+    } as InvokeResult;
+  }
+
+  // Fallback to custom/forge endpoint (original behavior)
   const payload: Record<string, unknown> = {
-    model: ENV.llmModel,
+    model: "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
   };
 
@@ -294,11 +511,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  const requestedMaxTokens = params.maxTokens ?? params.max_tokens;
-  payload.max_tokens =
-    requestedMaxTokens && requestedMaxTokens > 0
-      ? requestedMaxTokens
-      : ENV.llmMaxTokens;
+  payload.max_tokens = params.maxTokens ?? params.max_tokens ?? 32768;
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
@@ -311,11 +524,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  const response = await fetch(resolveChatUrl(), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.openAiApiKey}`,
+      authorization: `Bearer ${getApiKey()}`,
     },
     body: JSON.stringify(payload),
   });

@@ -4,9 +4,7 @@ export const ENV = {
   databaseUrl: process.env.DATABASE_URL ?? "",
   isProduction: process.env.NODE_ENV === "production",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
-  // Legacy Manus Forge endpoint — still read by notification.ts (notifyOwner),
-  // which throws INTERNAL_SERVER_ERROR when these are unset (the normal case
-  // outside Manus hosting).
+  // Legacy Manus Forge stubs -- unused but kept for template files that reference them
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   // Google OAuth
@@ -14,18 +12,18 @@ export const ENV = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   // OpenAI
   openAiApiKey: process.env.OPENAI_API_KEY ?? "",
-  openAiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com",
-  // LLM model used by invokeLLM for prompt/story-context generation
-  llmModel: process.env.LLM_MODEL ?? "gpt-4o-mini",
-  llmMaxTokens: Number(process.env.LLM_MAX_TOKENS ?? "4096"),
-  // Image generation model + size
-  imageModel: process.env.IMAGE_MODEL ?? "dall-e-3",
-  imageSize: process.env.IMAGE_SIZE ?? "1024x1024",
-  // Automatic retry worker for failed pages
-  retryWorkerEnabled: (process.env.RETRY_WORKER_ENABLED ?? "true") !== "false",
-  retryWorkerIntervalMs: Number(process.env.RETRY_WORKER_INTERVAL_MS ?? "30000"),
   // Cloudinary
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
+  // Feature flags
+  // When true, processBookPipeline plans MULTIPLE distinct scenes per book
+  // (scenePlanner) instead of a rigid one-image-per-page mapping. Defaults off
+  // to preserve existing behaviour.
+  sceneModeEnabled: process.env.SCENE_MODE_ENABLED === "true",
+  // When true, ALL paid boundaries (LLM, DALL-E image gen, Cloudinary storage)
+  // run as local no-cost stubs even if keys are present -- lets the full pipeline
+  // run end-to-end with zero spend. Each boundary also auto-falls-back to offline
+  // when its own key is absent (see server/_core/offline.ts).
+  offlineMode: process.env.OFFLINE_MODE === "true",
 };

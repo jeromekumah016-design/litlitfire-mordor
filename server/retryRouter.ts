@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "./_core/trpc";
 import {
   markPageForRetry,
@@ -6,7 +7,7 @@ import {
   getRetryHistory,
   resetPageRetryCount,
 } from "./retryService";
-import { getDb } from "./db";
+import { getBook, getDb } from "./db";
 import { pages } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
@@ -16,37 +17,14 @@ import { eq } from "drizzle-orm";
 
 export const retryRouter = router({
   /**
-   * Get retry history for a specific page
+   * Get retry history for a specific page (ownership-checked)
    */
   getHistory: protectedProcedure
     .input(z.object({ pageId: z.number() }))
-    .query(async ({ input }) => {
-      const history = await getRetryHistory(input.pageId);
-      return history;
-    }),
-
-  /**
-   * Get pages ready for automatic retry
-   */
-  getReadyForRetry: protectedProcedure
-    .input(z.object({ bookId: z.number() }).optional())
-    .query(async ({ input }) => {
-      const readyPages = await getPagesReadyForRetry(input?.bookId);
-      return readyPages;
-    }),
-
-  /**
-   * Manually retry a failed page (resets retry count)
-   */
-  manualRetry: protectedProcedure
-    .input(z.object({ pageId: z.number(), bookId: z.number() }))
-    .mutation(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) {
-        throw new Error("Database not available");
-      }
+      if (!db) return [];
 
-      // Get page to verify it exists and belongs to user's book
       const pageData = await db
         .select()
         .from(pages)
@@ -54,19 +32,78 @@ export const retryRouter = router({
         .limit(1);
 
       if (!pageData.length) {
-        throw new Error("Page not found");
+        throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+      }
+
+      const page = pageData[0];
+      const book = await getBook(page.bookId);
+      if (!book) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+      }
+      if (book.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to view this page" });
+      }
+
+      return getRetryHistory(input.pageId);
+    }),
+
+  /**
+   * Get pages ready for automatic retry (restricted to caller's books)
+   */
+  getReadyForRetry: protectedProcedure
+    .input(z.object({ bookId: z.number() }).optional())
+    .query(async ({ input, ctx }) => {
+      if (input?.bookId != null) {
+        const book = await getBook(input.bookId);
+        if (!book) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+        }
+        if (book.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to view this book" });
+        }
+      }
+      const readyPages = await getPagesReadyForRetry(input?.bookId);
+      return readyPages;
+    }),
+
+  /**
+   * Manually retry a failed page (resets retry count, ownership-checked)
+   */
+  manualRetry: protectedProcedure
+    .input(z.object({ pageId: z.number(), bookId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      // Ownership check first (uses the already-mocked helper, so tests reach it).
+      const book = await getBook(input.bookId);
+      if (!book) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+      }
+      if (book.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to retry pages in this book" });
+      }
+
+      const db = await getDb();
+      if (!db) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      }
+
+      const pageData = await db
+        .select()
+        .from(pages)
+        .where(eq(pages.id, input.pageId))
+        .limit(1);
+
+      if (!pageData.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
       }
 
       const page = pageData[0];
       if (page.bookId !== input.bookId) {
-        throw new Error("Page does not belong to this book");
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Page does not belong to this book" });
       }
 
-      // Reset retry count to allow retries again
       const success = await resetPageRetryCount(input.pageId);
-
       if (!success) {
-        throw new Error("Failed to reset retry count");
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to reset retry count" });
       }
 
       return {
@@ -76,14 +113,22 @@ export const retryRouter = router({
     }),
 
   /**
-   * Get retry statistics for a book
+   * Get retry statistics for a book (ownership-checked)
    */
   getStats: protectedProcedure
     .input(z.object({ bookId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const book = await getBook(input.bookId);
+      if (!book) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Book not found" });
+      }
+      if (book.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to view this book" });
+      }
+
       const db = await getDb();
       if (!db) {
-        throw new Error("Database not available");
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
       }
 
       const bookPages = await db
