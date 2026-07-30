@@ -465,11 +465,11 @@ export const booksRouter = router({
           pages: pageItems,
           createdAt: book.createdAt,
         };
-        // Don't cache mid-pipeline so Stage 1 / approve / render show up immediately.
-        if (
-          phase.phase !== "reading" &&
-          phase.phase !== "extracted"
-        ) {
+        // A completed book is immutable from the pipeline's perspective. Cache it
+        // even when its page rows are empty (for example, immediately after a
+        // migration); phase alone would otherwise misclassify it as "extracted".
+        // All active pipeline states remain uncached so the UI advances live.
+        if (book.processingStatus === "completed") {
           setInCache(cacheKey, result);
         }
         return result;
