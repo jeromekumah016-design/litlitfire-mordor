@@ -32,7 +32,7 @@
  * run `npm pack <pkg>@<version>` by hand, extract over the directory).
  */
 
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -85,6 +85,29 @@ function fileExistsAny(dir, candidates) {
   });
 }
 
+// Some packages (pnpm's bundled reflink addons, e.g.) ship prebuilt .node
+// binaries for EVERY os/arch combo directly inside their own dist folder,
+// not as separate optionalDependencies the way @napi-rs/canvas does. Only
+// the one matching this machine is ever loaded; the rest are legitimately
+// foreign and SHOULD fail to require() -- that's not corruption, so don't
+// load-test a .node file whose own name plainly says it's for a different
+// platform/arch than the one actually running this script.
+const OTHER_PLATFORM_TAGS = ["darwin", "win32", "freebsd", "sunos", "aix", "android"].filter(
+  (t) => t !== process.platform,
+);
+const OTHER_ARCH_TAGS = ["arm64", "ia32", "arm", "riscv64", "s390x", "mips", "ppc64"].filter(
+  // prefix-aware in both directions so e.g. the generic "arm" tag isn't
+  // treated as foreign when actually running on arm64 (and vice versa)
+  (t) => t !== process.arch && !t.startsWith(process.arch) && !process.arch.startsWith(t),
+);
+function isForeignPlatformBinary(file) {
+  const base = path.basename(file).toLowerCase();
+  return (
+    OTHER_PLATFORM_TAGS.some((tag) => base.includes(tag)) ||
+    OTHER_ARCH_TAGS.some((tag) => base.includes(tag))
+  );
+}
+
 function checkPkg(dir) {
   const pj = path.join(dir, "package.json");
   if (!fs.existsSync(pj)) return "MISSING package.json";
@@ -107,14 +130,43 @@ function checkPkg(dir) {
       if (!fs.existsSync(path.join(dir, f))) missing.push(f);
     }
   }
-  // Native addon sanity: a .node file under 100KB is almost certainly a
-  // torn write (real prebuilt binaries for this stack run 300KB-4MB+).
+  // Native addon sanity, two layers:
+  // 1) a .node file under 100KB is almost certainly a torn write (real
+  //    prebuilt binaries for this stack run 300KB-4MB+) -- cheap, no
+  //    subprocess needed, catches the obvious case fast.
+  // 2) load-test every .node file (regardless of size) in a child process.
+  //    Proven necessary 2026-07-29: @napi-rs/canvas's skia.linux-x64-gnu.node
+  //    landed at 6.1MB (real published size 33.4MB) -- plausible-looking,
+  //    comfortably over the 100KB floor, but still a torn write that
+  //    SIGBUSes ("Bus error (core dumped)") on require(), which is NOT a
+  //    catchable JS exception -- it silently killed every vitest worker
+  //    process with no useful error (tinypool only ever sees "Worker exited
+  //    unexpectedly"), costing a full debugging pass to trace back to this
+  //    file. A child-process load-test surfaces it directly: the crash
+  //    kills the CHILD, execFileSync just throws in the (unaffected) parent
+  //    script, so this is safe to run unconditionally.
   for (const entry of walkShallow(dir)) {
     if (entry.endsWith(".node")) {
+      let sz;
       try {
-        const sz = fs.statSync(entry).size;
-        if (sz < 100_000) missing.push(`truncated native addon (${sz}B): ${entry}`);
-      } catch {}
+        sz = fs.statSync(entry).size;
+      } catch {
+        continue;
+      }
+      if (sz < 100_000) {
+        missing.push(`truncated native addon (${sz}B): ${entry}`);
+        continue; // already flagged; no need to also load-test it
+      }
+      if (isForeignPlatformBinary(entry)) continue; // not meant to load here
+      try {
+        execFileSync(process.execPath, ["-e", "require(process.argv[1])", entry], {
+          stdio: "ignore",
+          timeout: 10_000,
+        });
+      } catch (e) {
+        const how = e.signal ? `killed by ${e.signal}` : `exit ${e.status}`;
+        missing.push(`native addon fails to load (${how}, ${sz}B): ${entry}`);
+      }
     }
   }
   return missing.length ? missing : null;
